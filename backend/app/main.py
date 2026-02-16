@@ -40,6 +40,9 @@ async def lifespan(app: FastAPI):
     
     logger.info("Database tables created/verified")
     
+    # Run database migrations for existing databases
+    await run_migrations()
+    
     # Pre-load AI models for faster first inference
     from app.services.detector import PlayerDetector
     try:
@@ -52,6 +55,41 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("Shutting down Sports Highlights API...")
+
+
+async def run_migrations():
+    """Run database migrations to add new columns to existing tables"""
+    from sqlalchemy import text
+    
+    migrations = [
+        # v2: Team color
+        ("players", "team_color", "ALTER TABLE players ADD COLUMN IF NOT EXISTS team_color VARCHAR(7)"),
+        # v3: Appearance-based re-identification
+        ("players", "appearance_embedding", "ALTER TABLE players ADD COLUMN IF NOT EXISTS appearance_embedding BYTEA"),
+        ("players", "appearance_cluster_id", "ALTER TABLE players ADD COLUMN IF NOT EXISTS appearance_cluster_id INTEGER"),
+        ("players", "appearance_features", "ALTER TABLE players ADD COLUMN IF NOT EXISTS appearance_features JSONB"),
+        ("players", "merged_track_ids", "ALTER TABLE players ADD COLUMN IF NOT EXISTS merged_track_ids JSONB"),
+        # v2: Celery task tracking
+        ("videos", "celery_task_id", "ALTER TABLE videos ADD COLUMN IF NOT EXISTS celery_task_id VARCHAR(255)"),
+    ]
+    
+    async with engine.begin() as conn:
+        for table, column, sql in migrations:
+            try:
+                await conn.execute(text(sql))
+                logger.debug(f"Migration applied: {table}.{column}")
+            except Exception as e:
+                logger.debug(f"Migration skipped (already exists or error): {table}.{column} - {e}")
+        
+        # Create indexes if they don't exist
+        try:
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_players_appearance_cluster ON players(appearance_cluster_id)"
+            ))
+        except Exception as e:
+            logger.debug(f"Index creation skipped: {e}")
+    
+    logger.info("Database migrations completed")
 
 
 # Create FastAPI app

@@ -23,10 +23,16 @@ CREATE TABLE IF NOT EXISTS players (
     video_id UUID NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
     jersey_number VARCHAR(10),
     team VARCHAR(50),
+    team_color VARCHAR(7),  -- RGB hex color (e.g., "#FF5500")
     track_id INTEGER,
     confidence FLOAT,
     first_seen_frame INTEGER,
     last_seen_frame INTEGER,
+    -- Appearance-based re-identification fields (v3)
+    appearance_embedding BYTEA,  -- 512-dim visual embedding
+    appearance_cluster_id INTEGER,  -- Cluster ID for grouping similar-looking players
+    appearance_features JSONB,  -- Human-readable features: {"jersey_color": "#FF0000", ...}
+    merged_track_ids JSONB,  -- List of track IDs merged into this player
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -72,6 +78,7 @@ CREATE TABLE IF NOT EXISTS clips (
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_players_video_id ON players(video_id);
 CREATE INDEX IF NOT EXISTS idx_players_jersey_number ON players(jersey_number);
+CREATE INDEX IF NOT EXISTS idx_players_appearance_cluster ON players(appearance_cluster_id);
 CREATE INDEX IF NOT EXISTS idx_player_segments_player_id ON player_segments(player_id);
 CREATE INDEX IF NOT EXISTS idx_player_segments_video_id ON player_segments(video_id);
 CREATE INDEX IF NOT EXISTS idx_actions_video_id ON actions(video_id);

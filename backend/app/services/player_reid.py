@@ -3,7 +3,7 @@ Player Re-Identification Service
 Uses appearance-based embeddings to identify and cluster players
 even when jersey OCR fails.
 
-Uses OSNet-AIN pre-trained model for person re-identification.
+Uses OSNet model via timm for person re-identification embeddings.
 """
 
 import logging
@@ -16,31 +16,45 @@ from scipy.spatial.distance import cosine
 
 logger = logging.getLogger(__name__)
 
-# Lazy load torchreid to avoid import issues
-_extractor_instance = None
+# Lazy load model to avoid import issues
+_model_instance = None
+_transform_instance = None
 
 
-def get_feature_extractor():
-    """Get or create the feature extractor instance"""
-    global _extractor_instance
-    if _extractor_instance is None:
+def get_reid_model():
+    """Get or create the ReID model instance using timm"""
+    global _model_instance, _transform_instance
+    
+    if _model_instance is None:
         try:
-            from torchreid.utils import FeatureExtractor
             import torch
+            import timm
+            from timm.data import resolve_data_config
+            from timm.data.transforms_factory import create_transform
             
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
-            logger.info(f"Initializing OSNet-AIN feature extractor on {device}")
+            logger.info(f"Initializing OSNet feature extractor on {device}")
             
-            _extractor_instance = FeatureExtractor(
-                model_name='osnet_ain_x1_0',
-                device=device
+            # Use osnet_x1_0 from timm - a lightweight ReID model
+            # This model outputs 512-dim features suitable for person re-identification
+            _model_instance = timm.create_model(
+                'osnet_x1_0',
+                pretrained=True,
+                num_classes=0  # Remove classifier, get features only
             )
-            logger.info("OSNet-AIN feature extractor initialized successfully")
+            _model_instance = _model_instance.to(device)
+            _model_instance.eval()
+            
+            # Get the transform for this model
+            config = resolve_data_config({}, model=_model_instance)
+            _transform_instance = create_transform(**config)
+            
+            logger.info("OSNet feature extractor initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize feature extractor: {e}")
             raise
     
-    return _extractor_instance
+    return _model_instance, _transform_instance
 
 
 @dataclass
@@ -65,7 +79,7 @@ class PlayerReID:
     """
     Person Re-Identification for basketball players.
     
-    Uses OSNet-AIN pre-trained model to generate visual embeddings
+    Uses OSNet pre-trained model to generate visual embeddings
     that capture appearance features like:
     - Jersey color and pattern
     - Shoe color
@@ -88,14 +102,18 @@ class PlayerReID:
             similarity_threshold: Minimum cosine similarity to consider
                                   two embeddings as the same person (0-1)
         """
-        self.extractor = None  # Lazy load
+        self.model = None
+        self.transform = None
+        self.device = None
         self.similarity_threshold = similarity_threshold
         self.embedding_dim = 512  # OSNet output dimension
         
-    def _ensure_extractor(self):
-        """Ensure feature extractor is loaded"""
-        if self.extractor is None:
-            self.extractor = get_feature_extractor()
+    def _ensure_model(self):
+        """Ensure model is loaded"""
+        if self.model is None:
+            import torch
+            self.model, self.transform = get_reid_model()
+            self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
     
     def preprocess_crop(self, crop: np.ndarray) -> Optional[np.ndarray]:
         """
@@ -116,15 +134,10 @@ class PlayerReID:
         if h < 30 or w < 15:
             return None
         
-        # Convert BGR to RGB (torchreid expects RGB)
+        # Convert BGR to RGB
         rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
         
-        # Resize to standard size for ReID (256x128 is common)
-        # Height should be ~2x width for person crops
-        target_h, target_w = 256, 128
-        resized = cv2.resize(rgb, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
-        
-        return resized
+        return rgb
     
     def get_embedding(self, player_crop: np.ndarray) -> Optional[np.ndarray]:
         """
@@ -136,20 +149,28 @@ class PlayerReID:
         Returns:
             512-dim numpy array or None if extraction failed
         """
-        self._ensure_extractor()
+        import torch
+        from PIL import Image
+        
+        self._ensure_model()
         
         processed = self.preprocess_crop(player_crop)
         if processed is None:
             return None
         
         try:
-            # FeatureExtractor expects a list of images
-            features = self.extractor([processed])
+            # Convert to PIL Image for timm transform
+            pil_image = Image.fromarray(processed)
             
-            # Returns tensor, convert to numpy
-            embedding = features[0].cpu().numpy() if hasattr(features[0], 'cpu') else features[0]
+            # Apply transform and add batch dimension
+            input_tensor = self.transform(pil_image).unsqueeze(0).to(self.device)
             
-            # Normalize embedding
+            # Extract features
+            with torch.no_grad():
+                features = self.model(input_tensor)
+            
+            # Convert to numpy and normalize
+            embedding = features[0].cpu().numpy()
             norm = np.linalg.norm(embedding)
             if norm > 0:
                 embedding = embedding / norm
@@ -170,7 +191,10 @@ class PlayerReID:
         Returns:
             List of embeddings (None for failed extractions)
         """
-        self._ensure_extractor()
+        import torch
+        from PIL import Image
+        
+        self._ensure_model()
         
         # Preprocess all crops
         processed = []
@@ -186,13 +210,24 @@ class PlayerReID:
             return [None] * len(crops)
         
         try:
-            # Batch extraction
-            features = self.extractor(processed)
+            # Convert to tensors
+            tensors = []
+            for img in processed:
+                pil_image = Image.fromarray(img)
+                tensor = self.transform(pil_image)
+                tensors.append(tensor)
+            
+            # Stack into batch
+            batch = torch.stack(tensors).to(self.device)
+            
+            # Extract features
+            with torch.no_grad():
+                features = self.model(batch)
             
             # Map back to original indices
             results = [None] * len(crops)
             for i, idx in enumerate(valid_indices):
-                emb = features[i].cpu().numpy() if hasattr(features[i], 'cpu') else features[i]
+                emb = features[i].cpu().numpy()
                 # Normalize
                 norm = np.linalg.norm(emb)
                 if norm > 0:

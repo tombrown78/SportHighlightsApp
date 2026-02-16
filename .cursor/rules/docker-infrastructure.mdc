@@ -1,0 +1,47 @@
+---
+description: Docker container names and infrastructure details for this project
+alwaysApply: true
+---
+
+# Docker Infrastructure
+
+## Container Names
+
+| Service | Container Name |
+|---------|---------------|
+| PostgreSQL Database | `sports-postgres` |
+| Redis Cache | `sports-redis` |
+| FastAPI Backend | `sports-backend` |
+| Celery Worker | `sports-worker` |
+| Next.js Frontend | `sports-frontend` |
+
+## Common Commands
+
+```powershell
+# Start all services
+docker compose up -d
+
+# View logs
+docker compose logs -f backend
+docker compose logs -f worker
+
+# Access PostgreSQL
+docker exec -it sports-postgres psql -U sports -d sports_highlights
+
+# Run SQL file (PowerShell)
+Get-Content scripts/migrate.sql | docker exec -i sports-postgres psql -U sports -d sports_highlights
+
+# Access Redis CLI
+docker exec -it sports-redis redis-cli
+
+# Restart a specific service
+docker compose restart sports-backend
+docker compose restart sports-worker
+```
+
+## Database Connection
+
+- **Host**: `sports-postgres` (from within Docker) or `localhost` (from host)
+- **Port**: `5432`
+- **User**: `sports`
+- **Database**: `sports_highlights`
