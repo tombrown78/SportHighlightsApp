@@ -120,7 +120,7 @@ async def get_player(player_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
             frame=a.frame,
             timestamp=a.timestamp,
             confidence=a.confidence,
-            metadata=a.metadata
+            action_data=a.action_data
         ) for a in actions]
     )
 
@@ -214,7 +214,7 @@ async def get_player_timeline(player_id: uuid.UUID, db: AsyncSession = Depends(g
             frame=a.frame,
             timestamp=a.timestamp,
             confidence=a.confidence,
-            metadata=a.metadata
+            action_data=a.action_data
         ) for a in actions],
         markers=markers
     )

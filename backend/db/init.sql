@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS actions (
     frame INTEGER NOT NULL,
     timestamp FLOAT NOT NULL,
     confidence FLOAT,
-    metadata JSONB,
+    action_data JSONB,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 

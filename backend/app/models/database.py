@@ -83,7 +83,7 @@ class Action(Base):
     frame = Column(Integer, nullable=False)
     timestamp = Column(Float, nullable=False)
     confidence = Column(Float)
-    metadata = Column(JSONB)
+    action_data = Column(JSONB)  # Renamed from 'metadata' which is reserved in SQLAlchemy
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationships

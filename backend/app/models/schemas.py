@@ -107,7 +107,7 @@ class ActionResponse(ActionBase):
     video_id: UUID
     player_id: Optional[UUID] = None
     player_jersey: Optional[str] = None
-    metadata: Optional[dict] = None
+    action_data: Optional[dict] = None
     
     class Config:
         from_attributes = True

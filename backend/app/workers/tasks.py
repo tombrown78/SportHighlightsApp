@@ -223,7 +223,7 @@ def process_video_task(self, video_id: str, options: dict = None):
                 frame=action.frame,
                 timestamp=action.timestamp,
                 confidence=action.confidence,
-                metadata=action.metadata
+                action_data=action.metadata
             )
             session.add(action_record)
         
