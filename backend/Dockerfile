@@ -38,6 +38,9 @@ COPY . .
 # Create directories for data
 RUN mkdir -p /app/videos /app/clips /app/models
 
+# Pre-download AI models during build (avoids runtime download)
+RUN python scripts/download_models.py
+
 # Expose port
 EXPOSE 8000
 
