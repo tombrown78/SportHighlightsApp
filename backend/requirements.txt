@@ -19,16 +19,15 @@ redis==5.0.1
 ultralytics==8.1.9
 torch==2.2.0
 torchvision==0.17.0
-opencv-python==4.9.0.80
+opencv-python>=4.6.0
 numpy==1.26.4
 supervision==0.18.0
 
 # Object tracking
 lapx==0.5.4
 
-# OCR for jersey numbers
-# Note: paddlepaddle will be installed via the Dockerfile with proper CUDA support
-paddleocr==2.7.0.3
+# OCR for jersey numbers (using easyocr instead of paddleocr due to opencv conflicts)
+easyocr>=1.7.0
 
 # Video processing
 ffmpeg-python==0.2.0

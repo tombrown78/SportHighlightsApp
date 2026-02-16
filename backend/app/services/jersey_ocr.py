@@ -1,6 +1,6 @@
 """
 Jersey Number OCR Service
-Uses PaddleOCR for reading jersey numbers from player crops
+Uses EasyOCR for reading jersey numbers from player crops
 """
 
 import logging
@@ -11,22 +11,17 @@ import re
 
 logger = logging.getLogger(__name__)
 
-# Lazy load PaddleOCR to avoid import issues
+# Lazy load EasyOCR to avoid import issues
 _ocr_instance = None
 
 
 def get_ocr():
-    """Get or create PaddleOCR instance"""
+    """Get or create EasyOCR instance"""
     global _ocr_instance
     if _ocr_instance is None:
-        from paddleocr import PaddleOCR
-        _ocr_instance = PaddleOCR(
-            use_angle_cls=True,
-            lang='en',
-            use_gpu=True,
-            show_log=False
-        )
-        logger.info("PaddleOCR initialized")
+        import easyocr
+        _ocr_instance = easyocr.Reader(['en'], gpu=True)
+        logger.info("EasyOCR initialized with GPU support")
     return _ocr_instance
 
 
@@ -74,7 +69,7 @@ class JerseyOCR:
         # Denoise
         denoised = cv2.fastNlMeansDenoising(enhanced, None, 10, 7, 21)
         
-        # Convert back to BGR for PaddleOCR
+        # Convert back to BGR for EasyOCR
         return cv2.cvtColor(denoised, cv2.COLOR_GRAY2BGR)
     
     def extract_jersey_region(self, crop: np.ndarray) -> np.ndarray:
@@ -121,27 +116,25 @@ class JerseyOCR:
             if processed is None:
                 return None, 0.0
             
-            # Run OCR
-            results = self.ocr.ocr(processed, cls=True)
+            # Run OCR - EasyOCR returns list of (bbox, text, confidence)
+            results = self.ocr.readtext(processed)
             
-            if not results or not results[0]:
+            if not results:
                 return None, 0.0
             
             # Find jersey numbers in results
             best_number = None
             best_confidence = 0.0
             
-            for line in results[0]:
-                if line and len(line) >= 2:
-                    text = line[1][0].strip()
-                    confidence = line[1][1]
-                    
-                    # Check if it looks like a jersey number
-                    if self.jersey_pattern.match(text):
-                        # Prefer higher confidence
-                        if confidence > best_confidence:
-                            best_number = text
-                            best_confidence = confidence
+            for (bbox, text, confidence) in results:
+                text = text.strip()
+                
+                # Check if it looks like a jersey number
+                if self.jersey_pattern.match(text):
+                    # Prefer higher confidence
+                    if confidence > best_confidence:
+                        best_number = text
+                        best_confidence = confidence
             
             return best_number, best_confidence
             

@@ -32,11 +32,6 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
-# Install PaddlePaddle with CUDA support separately (version depends on CUDA)
-# Using CPU version as fallback since GPU version has complex dependencies
-RUN pip install --no-cache-dir paddlepaddle==2.6.0 || \
-    pip install --no-cache-dir paddlepaddle
-
 # Copy application code
 COPY . .
 
