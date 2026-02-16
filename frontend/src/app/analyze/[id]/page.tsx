@@ -279,6 +279,18 @@ export default function AnalyzePage() {
     };
   }, [video?.status, videoId]);
 
+  const fetchPlayers = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/players/video/${videoId}`);
+      if (response.ok) {
+        const data = await response.json();
+        setPlayers(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch players:', err);
+    }
+  };
+
   const fetchVideo = async () => {
     try {
       const response = await fetch(`${API_URL}/api/videos/${videoId}`);
@@ -298,18 +310,6 @@ export default function AnalyzePage() {
 
   // Fetch video data
   useEffect(() => {
-    const fetchPlayers = async () => {
-      try {
-        const response = await fetch(`${API_URL}/api/players/video/${videoId}`);
-        if (response.ok) {
-          const data = await response.json();
-          setPlayers(data);
-        }
-      } catch (err) {
-        console.error('Failed to fetch players:', err);
-      }
-    };
-
     const fetchVideoData = async () => {
       try {
         const response = await fetch(`${API_URL}/api/videos/${videoId}`);
