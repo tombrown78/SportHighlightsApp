@@ -21,7 +21,7 @@ from app.services.video_processor import download_youtube_video, get_video_info
 from app.workers.tasks import process_video_task
 
 router = APIRouter()
-logger = logging.getLogger(__)
+logger = logging.getLogger(__name__)
 
 
 @router.post("/upload", response_model=VideoUploadResponse)
