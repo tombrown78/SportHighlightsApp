@@ -24,6 +24,10 @@ import {
   ArrowRight,
   Filter,
   List,
+  Film,
+  Trash2,
+  Info,
+  BarChart3,
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -89,6 +93,21 @@ interface TimelineMarker {
   label?: string;
 }
 
+// Clip/Highlight interface
+interface Clip {
+  id: string;
+  video_id: string;
+  player_id?: string;
+  title?: string;
+  file_path: string;
+  start_time: number;
+  end_time: number;
+  duration_seconds?: number;
+  download_url?: string;
+  created_at: string;
+  player_jersey?: string;
+}
+
 interface ProcessingEvent {
   event: string;
   percent?: number;
@@ -150,6 +169,10 @@ export default function AnalyzePage() {
   const [allActions, setAllActions] = useState<VideoAction[]>([]);
   const [actionFilter, setActionFilter] = useState<string | null>(null);
   const [showPlayByPlay, setShowPlayByPlay] = useState(true);
+
+  // Clips state
+  const [clips, setClips] = useState<Clip[]>([]);
+  const [deletingClipId, setDeletingClipId] = useState<string | null>(null);
 
   // Cancel video processing
   const cancelProcessing = async () => {
@@ -330,6 +353,34 @@ export default function AnalyzePage() {
     }
   };
 
+  const fetchClips = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/clips/video/${videoId}`);
+      if (response.ok) {
+        const data = await response.json();
+        setClips(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch clips:', err);
+    }
+  };
+
+  const deleteClip = async (clipId: string) => {
+    setDeletingClipId(clipId);
+    try {
+      const response = await fetch(`${API_URL}/api/clips/${clipId}`, {
+        method: 'DELETE',
+      });
+      if (response.ok) {
+        setClips(clips.filter(c => c.id !== clipId));
+      }
+    } catch (err) {
+      console.error('Failed to delete clip:', err);
+    } finally {
+      setDeletingClipId(null);
+    }
+  };
+
   const fetchVideo = async () => {
     try {
       const response = await fetch(`${API_URL}/api/videos/${videoId}`);
@@ -340,6 +391,7 @@ export default function AnalyzePage() {
       if (data.status === 'completed') {
         fetchPlayers();
         fetchAllActions();
+        fetchClips();
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load video');
@@ -368,6 +420,7 @@ export default function AnalyzePage() {
               if (updated.status === 'completed') {
                 fetchPlayers();
                 fetchAllActions();
+                fetchClips();
               }
             }
           }, 5000);
@@ -375,6 +428,7 @@ export default function AnalyzePage() {
         } else if (data.status === 'completed') {
           fetchPlayers();
           fetchAllActions();
+          fetchClips();
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load video');
@@ -509,8 +563,17 @@ export default function AnalyzePage() {
         { method: 'POST' }
       );
       if (response.ok) {
-        const clips = await response.json();
-        alert(`Generated ${clips.length} highlight clips!`);
+        const newClips = await response.json();
+        // Refresh clips list to show the new clips
+        await fetchClips();
+        // Show success message with count
+        if (newClips.length > 0) {
+          // Scroll to clips section would be nice, but for now just update state
+          console.log(`Generated ${newClips.length} highlight clips`);
+        }
+      } else {
+        const error = await response.json();
+        console.error('Failed to generate clips:', error);
       }
     } catch (err) {
       console.error('Failed to generate clips:', err);
@@ -895,12 +958,14 @@ export default function AnalyzePage() {
                 <button
                   onClick={skipBackward}
                   className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+                  title="Skip backward 10 seconds"
                 >
                   <SkipBack className="w-5 h-5" />
                 </button>
                 <button
                   onClick={togglePlay}
                   className="p-3 bg-primary-600 hover:bg-primary-700 text-white rounded-full"
+                  title={isPlaying ? 'Pause' : 'Play'}
                 >
                   {isPlaying ? (
                     <Pause className="w-5 h-5" />
@@ -911,6 +976,7 @@ export default function AnalyzePage() {
                 <button
                   onClick={skipForward}
                   className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+                  title="Skip forward 10 seconds"
                 >
                   <SkipForward className="w-5 h-5" />
                 </button>
@@ -934,6 +1000,59 @@ export default function AnalyzePage() {
 
         {/* Sidebar */}
         <div className="space-y-4">
+          {/* Video Stats Summary */}
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-700">
+            <h3 className="font-semibold text-gray-900 dark:text-white mb-3 flex items-center">
+              <BarChart3 className="w-4 h-4 mr-2" />
+              Analysis Summary
+            </h3>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold text-primary-600">{players.length}</div>
+                <div className="text-xs text-gray-500">Players</div>
+              </div>
+              <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold text-orange-500">{allActions.length}</div>
+                <div className="text-xs text-gray-500">Actions</div>
+              </div>
+              <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold text-green-500">{clips.length}</div>
+                <div className="text-xs text-gray-500">Clips</div>
+              </div>
+              <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold text-blue-500">
+                  {video?.duration_seconds ? formatTime(video.duration_seconds) : '0:00'}
+                </div>
+                <div className="text-xs text-gray-500">Duration</div>
+              </div>
+            </div>
+            
+            {/* Action breakdown if any actions exist */}
+            {allActions.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                <p className="text-xs text-gray-500 mb-2">Action breakdown:</p>
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries(
+                    allActions.reduce((acc, a) => {
+                      acc[a.action_type] = (acc[a.action_type] || 0) + 1;
+                      return acc;
+                    }, {} as Record<string, number>)
+                  ).map(([type, count]) => {
+                    const { color, bg } = getActionIcon(type);
+                    return (
+                      <span
+                        key={type}
+                        className={`px-2 py-1 text-xs rounded-full ${bg} ${color}`}
+                      >
+                        {type.replace('_', ' ')}: {count}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Player Selection */}
           <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-700">
             <h3 className="font-semibold text-gray-900 dark:text-white mb-3">
@@ -1125,9 +1244,16 @@ export default function AnalyzePage() {
             {/* Actions List */}
             <div className="space-y-1 max-h-80 overflow-y-auto">
               {filteredActions.length === 0 ? (
-                <p className="text-sm text-gray-500 text-center py-4">
-                  No actions detected
-                </p>
+                <div className="text-center py-4">
+                  <Info className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                  <p className="text-sm text-gray-500 font-medium">
+                    No basketball actions detected
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1 px-2">
+                    This may be due to the ball not being visible or tracked in the video.
+                    Player segments are still available for highlight generation.
+                  </p>
+                </div>
               ) : (
                 filteredActions.map((action) => {
                   const { icon: Icon, color, bg } = getActionIcon(action.action_type);
@@ -1172,6 +1298,81 @@ export default function AnalyzePage() {
                     </button>
                   );
                 })
+              )}
+            </div>
+          </div>
+
+          {/* Generated Clips Gallery */}
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-700">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold text-gray-900 dark:text-white flex items-center">
+                <Film className="w-4 h-4 mr-2" />
+                Generated Clips
+              </h3>
+              <span className="text-xs text-gray-500">{clips.length} clips</span>
+            </div>
+
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {clips.length === 0 ? (
+                <div className="text-center py-4">
+                  <Film className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                  <p className="text-sm text-gray-500">No clips generated yet</p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Select a player and click "Generate Highlights"
+                  </p>
+                </div>
+              ) : (
+                clips.map((clip) => (
+                  <div
+                    key={clip.id}
+                    className="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium truncate flex-grow">
+                        {clip.title || 'Untitled Clip'}
+                      </span>
+                      <span className="text-xs text-gray-500 ml-2">
+                        {clip.duration_seconds?.toFixed(1)}s
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-gray-500 mb-2">
+                      <span>
+                        {formatTime(clip.start_time)} - {formatTime(clip.end_time)}
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={() => seekTo(clip.start_time)}
+                        className="flex-1 px-2 py-1.5 bg-primary-600 hover:bg-primary-700 text-white text-xs rounded flex items-center justify-center"
+                        title="Play in video"
+                      >
+                        <Play className="w-3 h-3 mr-1" />
+                        Play
+                      </button>
+                      <a
+                        href={`${API_URL}${clip.download_url}`}
+                        download
+                        className="flex-1 px-2 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs rounded flex items-center justify-center"
+                        title="Download clip"
+                      >
+                        <Download className="w-3 h-3 mr-1" />
+                        Download
+                      </a>
+                      <button
+                        onClick={() => deleteClip(clip.id)}
+                        disabled={deletingClipId === clip.id}
+                        className="px-2 py-1.5 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white text-xs rounded flex items-center justify-center"
+                        title="Delete clip"
+                      >
+                        {deletingClipId === clip.id ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-3 h-3" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                ))
               )}
             </div>
           </div>
