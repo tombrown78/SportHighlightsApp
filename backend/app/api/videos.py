@@ -45,10 +45,13 @@ async def upload_video(
     
     Optional team info helps identify which team each player belongs to.
     """
+    logger.info(f"Upload request received - file: {file.filename if file else None}, youtube: {youtube_url}")
+    
     if not file and not youtube_url:
         raise HTTPException(status_code=400, detail="Either file or youtube_url must be provided")
     
     video_id = uuid.uuid4()
+    logger.info(f"Generated video_id: {video_id}")
     
     try:
         if youtube_url:
@@ -60,6 +63,7 @@ async def upload_video(
             # Handle file upload
             filename = file.filename
             ext = os.path.splitext(filename)[1].lower()
+            logger.info(f"Processing file upload: {filename}, ext: {ext}")
             
             if ext not in settings.SUPPORTED_VIDEO_FORMATS:
                 raise HTTPException(
@@ -69,16 +73,23 @@ async def upload_video(
             
             # Save uploaded file
             file_path = os.path.join(settings.VIDEOS_DIR, f"{video_id}{ext}")
+            logger.info(f"Saving file to: {file_path}")
+            
             async with aiofiles.open(file_path, 'wb') as out_file:
                 content = await file.read()
+                logger.info(f"Read {len(content)} bytes from upload")
                 await out_file.write(content)
             
+            logger.info(f"File saved successfully")
             original_url = None
         
         # Get video metadata
+        logger.info(f"Getting video metadata...")
         video_info = await get_video_info(file_path)
+        logger.info(f"Video info: {video_info}")
         
         # Create database record
+        logger.info(f"Creating database record...")
         video = Video(
             id=video_id,
             filename=filename,
@@ -93,6 +104,7 @@ async def upload_video(
         
         db.add(video)
         await db.commit()
+        logger.info(f"Database record created")
         
         # Build processing options
         processing_options = {
@@ -105,9 +117,11 @@ async def upload_video(
         }
         
         # Queue for processing with options and store task ID
+        logger.info(f"Queuing task...")
         task = process_video_task.delay(str(video_id), processing_options)
         video.celery_task_id = task.id
         await db.commit()
+        logger.info(f"Task queued with ID: {task.id}")
         
         return VideoUploadResponse(
             id=video_id,
