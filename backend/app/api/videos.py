@@ -25,11 +25,22 @@ logger = logging.getLogger(__name__)
 async def upload_video(
     file: Optional[UploadFile] = File(None),
     youtube_url: Optional[str] = Form(None),
+    analysis_mode: Optional[str] = Form("full"),
+    target_jersey: Optional[str] = Form(None),
+    home_team: Optional[str] = Form(None),
+    away_team: Optional[str] = Form(None),
+    home_color: Optional[str] = Form(None),
+    away_color: Optional[str] = Form(None),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Upload a video file or provide a YouTube URL for analysis.
-    The video will be queued for processing.
+    
+    Analysis modes:
+    - "full": Analyze all players (default)
+    - "targeted": Focus on a specific jersey number (faster)
+    
+    Optional team info helps identify which team each player belongs to.
     """
     if not file and not youtube_url:
         raise HTTPException(status_code=400, detail="Either file or youtube_url must be provided")
@@ -80,8 +91,18 @@ async def upload_video(
         db.add(video)
         await db.commit()
         
-        # Queue for processing
-        process_video_task.delay(str(video_id))
+        # Build processing options
+        processing_options = {
+            "analysis_mode": analysis_mode,
+            "target_jersey": target_jersey,
+            "home_team": home_team,
+            "away_team": away_team,
+            "home_color": home_color,
+            "away_color": away_color,
+        }
+        
+        # Queue for processing with options
+        process_video_task.delay(str(video_id), processing_options)
         
         return VideoUploadResponse(
             id=video_id,

@@ -32,10 +32,17 @@ celery_app.conf.update(
 
 
 @celery_app.task(bind=True, name="process_video")
-def process_video_task(self, video_id: str):
+def process_video_task(self, video_id: str, options: dict = None):
     """
     Main video processing task
     
+    Options:
+    - analysis_mode: "full" or "targeted"
+    - target_jersey: Jersey number to focus on (if targeted mode)
+    - home_team, away_team: Team names
+    - home_color, away_color: Jersey colors
+    
+    Steps:
     1. Load video
     2. Run player detection and tracking
     3. Run jersey OCR
@@ -50,7 +57,17 @@ def process_video_task(self, video_id: str):
     from app.services.action_recognizer import ActionRecognizer
     from app.services.video_processor import get_video_info_sync
     
+    # Parse options
+    options = options or {}
+    analysis_mode = options.get("analysis_mode", "full")
+    target_jersey = options.get("target_jersey")
+    home_team = options.get("home_team")
+    away_team = options.get("away_team")
+    home_color = options.get("home_color")
+    away_color = options.get("away_color")
+    
     logger.info(f"Starting video processing: {video_id}")
+    logger.info(f"Analysis mode: {analysis_mode}, Target: {target_jersey}")
     
     # Create sync database session
     engine = create_engine(settings.DATABASE_URL.replace("+asyncpg", ""))
@@ -154,9 +171,21 @@ def process_video_task(self, video_id: str):
         player_id_map = {}  # track_id -> player.id
         
         for track_id, track in player_tracks.items():
+            # In targeted mode, skip players that don't match target jersey
+            if analysis_mode == "targeted" and target_jersey:
+                if track.jersey_number != target_jersey:
+                    continue
+            
+            # Determine team based on jersey color (if provided)
+            team = None
+            if home_team and away_team:
+                # This is a simplified assignment - could be enhanced with color detection
+                team = home_team  # Default, would need color analysis to improve
+            
             player = Player(
                 video_id=video.id,
                 jersey_number=track.jersey_number,
+                team=team,
                 track_id=track_id,
                 confidence=track.confidence,
                 first_seen_frame=track.first_frame,

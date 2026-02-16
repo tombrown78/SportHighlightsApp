@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { Upload, Link, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
+import { Upload, Link, Loader2, CheckCircle, AlertCircle, Settings, Users } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -15,6 +15,15 @@ export default function Home() {
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState('');
   const [dragActive, setDragActive] = useState(false);
+  
+  // Analysis options
+  const [showOptions, setShowOptions] = useState(false);
+  const [analysisMode, setAnalysisMode] = useState<'full' | 'targeted'>('full');
+  const [targetJersey, setTargetJersey] = useState('');
+  const [homeTeam, setHomeTeam] = useState('');
+  const [awayTeam, setAwayTeam] = useState('');
+  const [homeColor, setHomeColor] = useState('');
+  const [awayColor, setAwayColor] = useState('');
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -61,6 +70,16 @@ export default function Home() {
       } else {
         throw new Error('Please select a file or enter a YouTube URL');
       }
+
+      // Add analysis options
+      formData.append('analysis_mode', analysisMode);
+      if (analysisMode === 'targeted' && targetJersey) {
+        formData.append('target_jersey', targetJersey);
+      }
+      if (homeTeam) formData.append('home_team', homeTeam);
+      if (awayTeam) formData.append('away_team', awayTeam);
+      if (homeColor) formData.append('home_color', homeColor);
+      if (awayColor) formData.append('away_color', awayColor);
 
       const response = await fetch(`${API_URL}/api/videos/upload`, {
         method: 'POST',
@@ -190,6 +209,130 @@ export default function Home() {
           </div>
         )}
 
+        {/* Analysis Options Toggle */}
+        <button
+          onClick={() => setShowOptions(!showOptions)}
+          className="mt-4 w-full py-2 px-4 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white flex items-center justify-center border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+        >
+          <Settings className="w-4 h-4 mr-2" />
+          {showOptions ? 'Hide' : 'Show'} Analysis Options
+        </button>
+
+        {/* Analysis Options Panel */}
+        {showOptions && (
+          <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg space-y-4">
+            {/* Analysis Mode */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Analysis Mode
+              </label>
+              <div className="flex space-x-4">
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    name="analysisMode"
+                    value="full"
+                    checked={analysisMode === 'full'}
+                    onChange={() => setAnalysisMode('full')}
+                    className="mr-2"
+                  />
+                  <span className="text-sm text-gray-700 dark:text-gray-300">
+                    Full Analysis (all players)
+                  </span>
+                </label>
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    name="analysisMode"
+                    value="targeted"
+                    checked={analysisMode === 'targeted'}
+                    onChange={() => setAnalysisMode('targeted')}
+                    className="mr-2"
+                  />
+                  <span className="text-sm text-gray-700 dark:text-gray-300">
+                    Target Specific Player (faster)
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            {/* Target Player (if targeted mode) */}
+            {analysisMode === 'targeted' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Target Jersey Number
+                </label>
+                <input
+                  type="text"
+                  value={targetJersey}
+                  onChange={(e) => setTargetJersey(e.target.value)}
+                  placeholder="e.g., 23"
+                  className="w-32 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Only track this player for faster processing
+                </p>
+              </div>
+            )}
+
+            {/* Team Information */}
+            <div className="pt-4 border-t border-gray-200 dark:border-gray-600">
+              <div className="flex items-center mb-3">
+                <Users className="w-4 h-4 mr-2 text-gray-500" />
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Team Information (Optional)
+                </span>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Home Team Name</label>
+                  <input
+                    type="text"
+                    value={homeTeam}
+                    onChange={(e) => setHomeTeam(e.target.value)}
+                    placeholder="e.g., Lakers"
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Home Jersey Color</label>
+                  <input
+                    type="text"
+                    value={homeColor}
+                    onChange={(e) => setHomeColor(e.target.value)}
+                    placeholder="e.g., Yellow"
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Away Team Name</label>
+                  <input
+                    type="text"
+                    value={awayTeam}
+                    onChange={(e) => setAwayTeam(e.target.value)}
+                    placeholder="e.g., Celtics"
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Away Jersey Color</label>
+                  <input
+                    type="text"
+                    value={awayColor}
+                    onChange={(e) => setAwayColor(e.target.value)}
+                    placeholder="e.g., Green"
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                Team info helps identify which team each player belongs to
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Status Messages */}
         {uploadStatus === 'success' && (
           <div className="mt-4 p-4 bg-green-50 dark:bg-green-900/20 rounded-lg flex items-center">
@@ -225,7 +368,9 @@ export default function Home() {
           ) : (
             <>
               <Upload className="w-5 h-5 mr-2" />
-              Analyze Video
+              {analysisMode === 'targeted' && targetJersey 
+                ? `Analyze Player #${targetJersey}` 
+                : 'Analyze Video'}
             </>
           )}
         </button>
