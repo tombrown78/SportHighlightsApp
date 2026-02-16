@@ -67,6 +67,7 @@ class PlayerResponse(PlayerBase):
     last_seen_frame: Optional[int] = None
     segment_count: Optional[int] = None
     action_count: Optional[int] = None
+    team_color: Optional[str] = None  # RGB hex color (e.g., "#FF5500")
     
     class Config:
         from_attributes = True

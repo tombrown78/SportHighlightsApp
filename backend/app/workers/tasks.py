@@ -345,6 +345,26 @@ def process_video_task(self, video_id: str, options: dict = None):
         player_tracks = deduplicate_tracks_by_jersey(player_tracks)
         logger.info(f"After deduplication: {len(player_tracks)} unique players")
         
+        # Check for cancellation before team classification
+        if progress_pub.is_cancelled():
+            raise CancelledException("Cancelled before team classification")
+        
+        # Run team classification using jersey colors
+        progress_pub.stage_change("teams", "Classifying teams by jersey color...")
+        logger.info("Running team classification...")
+        
+        team_assignments = {}
+        try:
+            from app.services.team_classifier import classify_teams_from_video
+            team_assignments = classify_teams_from_video(
+                video.file_path,
+                player_tracks,
+                sample_interval=30
+            )
+            logger.info(f"Team classification complete: {len(team_assignments)} players assigned")
+        except Exception as e:
+            logger.warning(f"Team classification failed (non-fatal): {e}")
+        
         # Check for cancellation before action recognition
         if progress_pub.is_cancelled():
             raise CancelledException("Cancelled before action recognition")
@@ -396,16 +416,32 @@ def process_video_task(self, video_id: str, options: dict = None):
                 if track.jersey_number != target_jersey:
                     continue
             
-            # Determine team based on jersey color (if provided)
+            # Determine team from classification or fallback to provided names
             team = None
-            if home_team and away_team:
-                # This is a simplified assignment - could be enhanced with color detection
-                team = home_team  # Default, would need color analysis to improve
+            team_color = None
+            
+            if track_id in team_assignments:
+                assignment = team_assignments[track_id]
+                if assignment.team.value == "team_a":
+                    team = home_team or "Team A"
+                elif assignment.team.value == "team_b":
+                    team = away_team or "Team B"
+                elif assignment.team.value == "referee":
+                    team = "Referee"
+                team_color = assignment.dominant_color  # RGB tuple
+            elif home_team:
+                team = home_team  # Fallback to provided team name
+            
+            # Convert RGB tuple to hex color string
+            team_color_hex = None
+            if team_color:
+                team_color_hex = "#{:02x}{:02x}{:02x}".format(*team_color)
             
             player = Player(
                 video_id=video.id,
                 jersey_number=track.jersey_number,
                 team=team,
+                team_color=team_color_hex,
                 track_id=track_id,
                 confidence=track.confidence,
                 first_seen_frame=track.first_frame,

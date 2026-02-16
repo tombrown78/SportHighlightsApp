@@ -42,6 +42,7 @@ class Player(Base):
     video_id = Column(UUID(as_uuid=True), ForeignKey("videos.id", ondelete="CASCADE"), nullable=False)
     jersey_number = Column(String(10))
     team = Column(String(50))
+    team_color = Column(String(7))  # RGB hex color (e.g., "#FF5500")
     track_id = Column(Integer)
     confidence = Column(Float)
     first_seen_frame = Column(Integer)

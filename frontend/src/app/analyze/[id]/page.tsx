@@ -49,6 +49,7 @@ interface Player {
   id: string;
   jersey_number: string;
   team: string;
+  team_color?: string;  // RGB hex color
   confidence: number;
   segment_count: number;
   action_count: number;
@@ -1077,15 +1078,30 @@ export default function AnalyzePage() {
                     } border`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="font-bold text-lg">
-                        #{player.jersey_number || '?'}
-                      </span>
+                      <div className="flex items-center space-x-2">
+                        {/* Team color indicator */}
+                        {player.team_color && (
+                          <div
+                            className="w-3 h-3 rounded-full border border-gray-300"
+                            style={{ backgroundColor: player.team_color }}
+                            title={player.team || 'Team'}
+                          />
+                        )}
+                        <span className="font-bold text-lg">
+                          #{player.jersey_number || '?'}
+                        </span>
+                      </div>
                       <span className="text-xs text-gray-500">
                         {player.segment_count} segments
                       </span>
                     </div>
-                    <div className="text-xs text-gray-500 mt-1">
-                      {player.action_count} actions detected
+                    <div className="flex items-center justify-between mt-1">
+                      <span className="text-xs text-gray-500">
+                        {player.team || 'Unknown Team'}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {player.action_count} actions
+                      </span>
                     </div>
                   </button>
                 ))
@@ -1096,9 +1112,20 @@ export default function AnalyzePage() {
           {/* Player Stats */}
           {selectedPlayer && (
             <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-700">
-              <h3 className="font-semibold text-gray-900 dark:text-white mb-3">
-                Player #{selectedPlayer.jersey_number} Stats
-              </h3>
+              <div className="flex items-center space-x-2 mb-3">
+                {selectedPlayer.team_color && (
+                  <div
+                    className="w-4 h-4 rounded-full border border-gray-300"
+                    style={{ backgroundColor: selectedPlayer.team_color }}
+                  />
+                )}
+                <h3 className="font-semibold text-gray-900 dark:text-white">
+                  Player #{selectedPlayer.jersey_number} Stats
+                </h3>
+              </div>
+              {selectedPlayer.team && (
+                <p className="text-sm text-gray-500 mb-3">{selectedPlayer.team}</p>
+              )}
               <div className="space-y-3">
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600 dark:text-gray-400">

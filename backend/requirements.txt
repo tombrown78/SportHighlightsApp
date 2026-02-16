@@ -23,6 +23,15 @@ opencv-python>=4.6.0
 numpy==1.26.4
 supervision==0.18.0
 
+# Basketball-specific detection (Roboflow models)
+roboflow>=1.1.0
+
+# Pose estimation for action recognition
+mediapipe>=0.10.9
+
+# Team classification
+scikit-learn>=1.4.0
+
 # Object tracking
 lapx==0.5.4
 
