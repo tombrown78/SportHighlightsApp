@@ -73,10 +73,11 @@ class PlayerDetector:
         self.model.to(self.device)
         
         # Initialize ByteTrack tracker
+        # Note: supervision's ByteTrack API varies by version
         self.tracker = sv.ByteTrack(
-            track_activation_threshold=settings.TRACKING_CONFIDENCE,
-            lost_track_buffer=30,
-            minimum_matching_threshold=0.8,
+            track_thresh=settings.TRACKING_CONFIDENCE,
+            track_buffer=30,
+            match_thresh=0.8,
             frame_rate=30
         )
         
@@ -169,9 +170,9 @@ class PlayerDetector:
         
         # Reset tracker for new video
         self.tracker = sv.ByteTrack(
-            track_activation_threshold=settings.TRACKING_CONFIDENCE,
-            lost_track_buffer=30,
-            minimum_matching_threshold=0.8,
+            track_thresh=settings.TRACKING_CONFIDENCE,
+            track_buffer=30,
+            match_thresh=0.8,
             frame_rate=int(fps) if fps > 0 else 30
         )
         
