@@ -81,6 +81,36 @@ docker compose exec backend pytest
 - **YouTube**: Paste any public/unlisted video URL
 - **Resolution**: 480p to 4K (higher = better jersey detection)
 
+## YouTube Authentication (Optional)
+
+To access private or age-restricted YouTube videos, you can set up authentication:
+
+### Method 1: Cookies File (Recommended)
+
+1. Install a browser extension like "Get cookies.txt" (Chrome/Firefox)
+2. Go to YouTube and log in to your account
+3. Export cookies for youtube.com
+4. Save the file as `youtube_cookies.txt`
+5. Mount it in Docker by adding to `docker-compose.yml`:
+   ```yaml
+   volumes:
+     - ./youtube_cookies.txt:/app/videos/youtube_cookies.txt
+   ```
+
+### Method 2: OAuth2
+
+1. Set `YOUTUBE_USE_OAUTH=true` in your `.env` file
+2. On first use, check the backend logs for an authentication URL
+3. Open the URL in your browser and log in
+4. The token will be cached for future use
+
+### Check Auth Status
+
+```bash
+# Via API
+curl http://localhost:8000/api/videos/youtube/auth-status
+```
+
 ## License
 
 MIT

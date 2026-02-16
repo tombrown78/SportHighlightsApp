@@ -240,3 +240,48 @@ async def delete_video(video_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     await db.commit()
     
     return {"message": "Video deleted successfully"}
+
+
+@router.post("/youtube/setup-auth")
+async def setup_youtube_auth():
+    """
+    Initialize YouTube OAuth authentication.
+    This will open a browser window for you to log in to YouTube.
+    Run this once to enable access to private/age-restricted videos.
+    """
+    from app.services.video_processor import setup_youtube_oauth
+    
+    try:
+        success = await setup_youtube_oauth()
+        if success:
+            return {"message": "YouTube authentication successful", "status": "success"}
+        else:
+            raise HTTPException(
+                status_code=500, 
+                detail="OAuth setup failed. Check server logs for details."
+            )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/youtube/auth-status")
+async def check_youtube_auth():
+    """Check if YouTube authentication is configured"""
+    import os
+    from app.core.config import settings
+    
+    cookies_path = os.path.join(settings.VIDEOS_DIR, "youtube_cookies.txt")
+    
+    auth_methods = {
+        "cookies_file": os.path.exists(cookies_path),
+        "oauth_enabled": settings.YOUTUBE_USE_OAUTH,
+        "credentials_set": bool(settings.YOUTUBE_USERNAME and settings.YOUTUBE_PASSWORD)
+    }
+    
+    is_authenticated = any(auth_methods.values())
+    
+    return {
+        "authenticated": is_authenticated,
+        "methods": auth_methods,
+        "message": "YouTube authentication is configured" if is_authenticated else "No YouTube authentication configured. Private videos will not be accessible."
+    }

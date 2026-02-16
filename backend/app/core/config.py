@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     CLIPS_DIR: str = "/app/clips"
     MODELS_DIR: str = "/app/models"
     
+    # YouTube Authentication (optional - for private/age-restricted videos)
+    YOUTUBE_USE_OAUTH: bool = False  # Set to True to use OAuth2
+    YOUTUBE_USERNAME: Optional[str] = None  # Legacy: email (not recommended)
+    YOUTUBE_PASSWORD: Optional[str] = None  # Legacy: password (not recommended)
+    # Alternative: Place a cookies.txt file at /app/videos/youtube_cookies.txt
+    
     # Video processing settings
     MAX_VIDEO_SIZE_MB: int = 2000  # 2GB max upload
     SUPPORTED_VIDEO_FORMATS: list = [".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv"]
