@@ -176,7 +176,7 @@ def process_video_task(self, video_id: str, options: dict = None):
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
     from app.models.database import Video, Player, PlayerSegment, Action
-    from app.services.detector import PlayerDetector
+    from app.services.detector import PlayerDetector, filter_valid_tracks, deduplicate_tracks_by_jersey
     from app.services.jersey_ocr import JerseyOCR, temporal_vote_jersey
     from app.services.action_recognizer import ActionRecognizer
     from app.services.video_processor import get_video_info_sync
@@ -264,6 +264,23 @@ def process_video_task(self, video_id: str, options: dict = None):
             detection_callback=detection_callback
         )
         
+        # Get video dimensions for filtering
+        cap_temp = cv2.VideoCapture(video.file_path)
+        frame_width = int(cap_temp.get(cv2.CAP_PROP_FRAME_WIDTH))
+        frame_height = int(cap_temp.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        cap_temp.release()
+        
+        # Filter tracks to remove false positives (crowd, brief appearances, etc.)
+        progress_pub.stage_change("filtering", "Filtering valid player tracks...")
+        logger.info(f"Filtering {len(player_tracks)} raw tracks...")
+        player_tracks = filter_valid_tracks(
+            player_tracks,
+            fps=fps,
+            frame_width=frame_width,
+            frame_height=frame_height
+        )
+        logger.info(f"After filtering: {len(player_tracks)} tracks remain")
+        
         # Open video for OCR crops
         progress_pub.stage_change("ocr", "Reading jersey numbers...")
         logger.info("Running jersey number OCR...")
@@ -321,6 +338,12 @@ def process_video_task(self, video_id: str, options: dict = None):
                        f"(from {len(jersey_readings)} readings)")
         
         cap.release()
+        
+        # Deduplicate tracks by jersey number (merge fragmented tracks)
+        progress_pub.stage_change("dedup", "Merging duplicate player tracks...")
+        logger.info(f"Deduplicating {len(player_tracks)} tracks by jersey number...")
+        player_tracks = deduplicate_tracks_by_jersey(player_tracks)
+        logger.info(f"After deduplication: {len(player_tracks)} unique players")
         
         # Check for cancellation before action recognition
         if progress_pub.is_cancelled():

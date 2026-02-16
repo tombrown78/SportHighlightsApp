@@ -39,9 +39,16 @@ class Settings(BaseSettings):
     SUPPORTED_VIDEO_FORMATS: list = [".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv"]
     
     # Detection settings (tuned for amateur footage)
-    DETECTION_CONFIDENCE: float = 0.3  # Lower threshold for variable lighting
-    TRACKING_CONFIDENCE: float = 0.4
+    DETECTION_CONFIDENCE: float = 0.45  # Increased from 0.3 to filter weak detections
+    TRACKING_CONFIDENCE: float = 0.5    # Increased from 0.4 for fewer spurious tracks
     OCR_CONFIDENCE: float = 0.5
+    
+    # Track filtering settings (to reduce false player counts)
+    MIN_TRACK_DURATION_SECONDS: float = 2.0  # Minimum time on screen to be a player
+    MIN_TRACK_DETECTIONS: int = 30           # Minimum detection count
+    MIN_TRACK_CONFIDENCE: float = 0.4        # Minimum average confidence
+    MIN_BBOX_AREA_RATIO: float = 0.001       # Min bbox area as ratio of frame (filter distant crowd)
+    MAX_EDGE_RATIO: float = 0.1              # Max ratio of bbox that can be at frame edge
     
     # Temporal smoothing for jersey OCR
     JERSEY_VOTE_WINDOW: int = 30  # frames to consider for voting
