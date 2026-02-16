@@ -23,6 +23,7 @@ class Video(Base):
     fps = Column(Float)
     status = Column(String(50), default="pending")
     error_message = Column(Text)
+    celery_task_id = Column(String(255))  # Track Celery task for cancellation
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     processed_at = Column(DateTime(timezone=True))

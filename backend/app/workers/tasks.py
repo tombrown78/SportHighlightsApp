@@ -4,9 +4,11 @@ Handles video processing in the background
 """
 
 import logging
+import json
 from celery import Celery
 from datetime import datetime
 import cv2
+import redis
 
 from app.core.config import settings
 
@@ -29,6 +31,128 @@ celery_app.conf.update(
     task_time_limit=7200,  # 2 hour max per task
     worker_prefetch_multiplier=1,  # Process one task at a time (GPU memory)
 )
+
+
+class ProgressPublisher:
+    """Publishes processing progress events to Redis for SSE streaming"""
+    
+    def __init__(self, video_id: str):
+        self.video_id = video_id
+        self.channel = f"video_progress:{video_id}"
+        self.cancel_key = f"video_cancel:{video_id}"
+        self.redis_client = redis.from_url(settings.REDIS_URL)
+        self.detection_count = 0
+        self.action_count = 0
+        self.players_found = set()
+    
+    def is_cancelled(self) -> bool:
+        """Check if cancellation has been requested"""
+        try:
+            return self.redis_client.exists(self.cancel_key) > 0
+        except Exception as e:
+            logger.warning(f"Error checking cancellation: {e}")
+            return False
+    
+    def clear_cancel_flag(self):
+        """Clear the cancellation flag"""
+        try:
+            self.redis_client.delete(self.cancel_key)
+        except Exception as e:
+            logger.warning(f"Error clearing cancel flag: {e}")
+        
+    def publish(self, event_type: str, data: dict):
+        """Publish an event to Redis"""
+        event = {"event": event_type, **data}
+        try:
+            self.redis_client.publish(self.channel, json.dumps(event))
+        except Exception as e:
+            logger.warning(f"Failed to publish event: {e}")
+    
+    def progress(self, frame: int, total_frames: int, stage: str):
+        """Publish progress update"""
+        percent = (frame / total_frames * 100) if total_frames > 0 else 0
+        self.publish("progress", {
+            "percent": round(percent, 1),
+            "frame": frame,
+            "total_frames": total_frames,
+            "stage": stage
+        })
+    
+    def detection(self, track_id: int, class_name: str, confidence: float, frame: int, bbox: list = None):
+        """Publish detection event"""
+        self.detection_count += 1
+        # Only publish every 10th detection to avoid flooding
+        if self.detection_count % 10 == 0:
+            self.publish("detection", {
+                "track_id": track_id,
+                "class_name": class_name,
+                "confidence": round(confidence, 2),
+                "frame": frame,
+                "count": self.detection_count
+            })
+    
+    def player_found(self, track_id: int, jersey_number: str, confidence: float):
+        """Publish when a new player is identified"""
+        if track_id not in self.players_found:
+            self.players_found.add(track_id)
+            self.publish("player", {
+                "track_id": track_id,
+                "jersey_number": jersey_number,
+                "confidence": round(confidence, 2),
+                "total_players": len(self.players_found)
+            })
+    
+    def action_detected(self, action_type: str, player_track_id: int, confidence: float, frame: int, timestamp: float):
+        """Publish action detection event"""
+        self.action_count += 1
+        self.publish("action", {
+            "action_type": action_type,
+            "player_track_id": player_track_id,
+            "confidence": round(confidence, 2),
+            "frame": frame,
+            "timestamp": round(timestamp, 2),
+            "count": self.action_count
+        })
+    
+    def stage_change(self, stage: str, message: str):
+        """Publish stage change event"""
+        self.publish("stage", {
+            "stage": stage,
+            "message": message
+        })
+    
+    def complete(self, players_count: int, actions_count: int):
+        """Publish completion event"""
+        self.publish("complete", {
+            "players_count": players_count,
+            "actions_count": actions_count,
+            "status": "completed"
+        })
+    
+    def error(self, message: str):
+        """Publish error event"""
+        self.publish("error", {
+            "message": message
+        })
+    
+    def cancelled(self):
+        """Publish cancellation event"""
+        self.publish("cancelled", {
+            "message": "Processing was cancelled",
+            "status": "cancelled"
+        })
+    
+    def close(self):
+        """Close Redis connection"""
+        try:
+            self.redis_client.close()
+        except:
+            pass
+
+
+class CancelledException(Exception):
+    """Raised when video processing is cancelled"""
+    pass
 
 
 @celery_app.task(bind=True, name="process_video")
@@ -69,6 +193,9 @@ def process_video_task(self, video_id: str, options: dict = None):
     logger.info(f"Starting video processing: {video_id}")
     logger.info(f"Analysis mode: {analysis_mode}, Target: {target_jersey}")
     
+    # Initialize progress publisher
+    progress_pub = ProgressPublisher(video_id)
+    
     # Create sync database session
     engine = create_engine(settings.DATABASE_URL.replace("+asyncpg", ""))
     Session = sessionmaker(bind=engine)
@@ -79,42 +206,85 @@ def process_video_task(self, video_id: str, options: dict = None):
         video = session.query(Video).filter(Video.id == video_id).first()
         if not video:
             logger.error(f"Video not found: {video_id}")
+            progress_pub.error("Video not found")
             return {"error": "Video not found"}
+        
+        # Check for cancellation before starting
+        if progress_pub.is_cancelled():
+            raise CancelledException("Cancelled before processing started")
         
         # Update status
         video.status = "processing"
         session.commit()
         
+        progress_pub.stage_change("init", "Initializing video analysis...")
+        
         # Get video info
         video_info = get_video_info_sync(video.file_path)
         fps = video_info.get("fps", 30.0)
+        total_frames = int(video_info.get("duration", 0) * fps)
+        
+        # Check for cancellation
+        if progress_pub.is_cancelled():
+            raise CancelledException("Cancelled during initialization")
         
         # Initialize services
+        progress_pub.stage_change("loading", "Loading AI models...")
         detector = PlayerDetector()
         ocr = JerseyOCR()
         action_recognizer = ActionRecognizer(fps=fps)
         
+        # Check for cancellation after model loading
+        if progress_pub.is_cancelled():
+            raise CancelledException("Cancelled after model loading")
+        
         def progress_callback(frame, total):
+            # Check for cancellation during detection
+            if progress_pub.is_cancelled():
+                raise CancelledException("Cancelled during detection")
+            
             progress = frame / total * 100
             self.update_state(
                 state="PROGRESS",
                 meta={"progress": progress, "frame": frame, "total": total}
             )
+            progress_pub.progress(frame, total, "detection")
             logger.info(f"Processing: {progress:.1f}% ({frame}/{total})")
         
+        def detection_callback(track_id, class_name, confidence, frame, bbox):
+            """Called for each detection"""
+            progress_pub.detection(track_id, class_name, confidence, frame, bbox)
+        
         # Run detection and tracking
+        progress_pub.stage_change("detection", "Detecting and tracking players...")
         logger.info("Running player detection and tracking...")
         player_tracks, all_detections = detector.process_video(
             video.file_path,
-            progress_callback=progress_callback
+            progress_callback=progress_callback,
+            detection_callback=detection_callback
         )
         
         # Open video for OCR crops
+        progress_pub.stage_change("ocr", "Reading jersey numbers...")
         logger.info("Running jersey number OCR...")
         cap = cv2.VideoCapture(video.file_path)
         
+        # Check for cancellation before OCR
+        if progress_pub.is_cancelled():
+            cap.release()
+            raise CancelledException("Cancelled before OCR")
+        
         # Process each player track for jersey numbers
+        track_count = 0
+        total_tracks = len(player_tracks)
+        
         for track_id, track in player_tracks.items():
+            # Check for cancellation every few tracks
+            if track_count % 5 == 0 and progress_pub.is_cancelled():
+                cap.release()
+                raise CancelledException("Cancelled during OCR")
+            
+            track_count += 1
             jersey_readings = []
             
             # Sample frames for OCR (every 10th detection to save time)
@@ -140,12 +310,24 @@ def process_video_task(self, video_id: str, options: dict = None):
             # Apply temporal voting
             final_jersey = temporal_vote_jersey(jersey_readings)
             
+            # Publish player found event
+            avg_conf = sum(r[1] for r in jersey_readings) / len(jersey_readings) if jersey_readings else 0
+            progress_pub.player_found(track_id, final_jersey or "?", avg_conf)
+            
+            # Update OCR progress
+            progress_pub.progress(track_count, total_tracks, "ocr")
+            
             logger.info(f"Track {track_id}: Jersey #{final_jersey} "
                        f"(from {len(jersey_readings)} readings)")
         
         cap.release()
         
+        # Check for cancellation before action recognition
+        if progress_pub.is_cancelled():
+            raise CancelledException("Cancelled before action recognition")
+        
         # Run action recognition
+        progress_pub.stage_change("actions", "Recognizing basketball actions...")
         logger.info("Running action recognition...")
         
         # Prepare data for action recognizer
@@ -164,7 +346,22 @@ def process_video_task(self, video_id: str, options: dict = None):
             player_positions, ball_positions, fps
         )
         
+        # Publish action events
+        for action in actions:
+            progress_pub.action_detected(
+                action.action_type.value,
+                action.player_track_id,
+                action.confidence,
+                action.frame,
+                action.timestamp
+            )
+        
+        # Check for cancellation before saving
+        if progress_pub.is_cancelled():
+            raise CancelledException("Cancelled before saving results")
+        
         # Save results to database
+        progress_pub.stage_change("saving", "Saving analysis results...")
         logger.info("Saving results to database...")
         
         # Create player records
@@ -232,6 +429,9 @@ def process_video_task(self, video_id: str, options: dict = None):
         video.processed_at = datetime.utcnow()
         session.commit()
         
+        # Publish completion
+        progress_pub.complete(len(player_tracks), len(actions))
+        
         logger.info(f"Video processing complete: {video_id}")
         logger.info(f"  - Players: {len(player_tracks)}")
         logger.info(f"  - Actions: {len(actions)}")
@@ -241,6 +441,22 @@ def process_video_task(self, video_id: str, options: dict = None):
             "players": len(player_tracks),
             "actions": len(actions)
         }
+    
+    except CancelledException as e:
+        logger.info(f"Video processing cancelled: {video_id} - {e}")
+        
+        # Update video status
+        video.status = "cancelled"
+        video.error_message = None
+        session.commit()
+        
+        # Publish cancellation event
+        progress_pub.cancelled()
+        
+        # Clear the cancel flag
+        progress_pub.clear_cancel_flag()
+        
+        return {"status": "cancelled", "message": str(e)}
         
     except Exception as e:
         logger.error(f"Error processing video: {e}", exc_info=True)
@@ -250,9 +466,13 @@ def process_video_task(self, video_id: str, options: dict = None):
         video.error_message = str(e)
         session.commit()
         
+        # Publish error
+        progress_pub.error(str(e))
+        
         return {"error": str(e)}
         
     finally:
+        progress_pub.close()
         session.close()
 
 

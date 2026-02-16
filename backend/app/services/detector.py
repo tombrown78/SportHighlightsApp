@@ -145,7 +145,8 @@ class PlayerDetector:
     def process_video(
         self,
         video_path: str,
-        progress_callback=None
+        progress_callback=None,
+        detection_callback=None
     ) -> Tuple[Dict[int, PlayerTrack], List[Detection]]:
         """
         Process entire video and return tracked players
@@ -153,6 +154,7 @@ class PlayerDetector:
         Args:
             video_path: Path to video file
             progress_callback: Optional callback(frame_num, total_frames)
+            detection_callback: Optional callback(track_id, class_name, confidence, frame, bbox)
             
         Returns:
             Tuple of (player_tracks dict, all_detections list)
@@ -192,6 +194,19 @@ class PlayerDetector:
             
             for det in detections:
                 all_detections.append(det)
+                
+                # Call detection callback if provided
+                if detection_callback:
+                    try:
+                        detection_callback(
+                            det.track_id,
+                            det.class_name,
+                            det.confidence,
+                            det.frame_number,
+                            list(det.bbox)
+                        )
+                    except Exception as e:
+                        logger.warning(f"Detection callback error: {e}")
                 
                 if det.class_name == "person" and det.track_id >= 0:
                     # Update or create player track
