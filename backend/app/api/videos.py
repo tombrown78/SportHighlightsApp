@@ -483,6 +483,61 @@ async def check_youtube_auth():
     }
 
 
+@router.get("/{video_id}/actions")
+async def get_video_actions(
+    video_id: uuid.UUID,
+    action_type: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get all actions for a video with player information.
+    
+    Returns actions sorted by timestamp, with player jersey numbers included.
+    Optionally filter by action_type (e.g., "shot_attempt", "rebound").
+    """
+    from app.models.database import Action, Player
+    
+    # Verify video exists
+    result = await db.execute(select(Video).where(Video.id == video_id))
+    video = result.scalar_one_or_none()
+    
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    
+    # Build query for actions with player info
+    query = select(Action, Player).outerjoin(
+        Player, Action.player_id == Player.id
+    ).where(Action.video_id == video_id)
+    
+    # Apply action type filter if provided
+    if action_type:
+        query = query.where(Action.action_type == action_type)
+    
+    # Order by timestamp
+    query = query.order_by(Action.timestamp)
+    
+    result = await db.execute(query)
+    rows = result.all()
+    
+    # Build response with player jersey info
+    actions_response = []
+    for action, player in rows:
+        actions_response.append({
+            "id": str(action.id),
+            "video_id": str(action.video_id),
+            "action_type": action.action_type,
+            "frame": action.frame,
+            "timestamp": action.timestamp,
+            "confidence": action.confidence,
+            "player_id": str(action.player_id) if action.player_id else None,
+            "player_jersey": player.jersey_number if player else None,
+            "player_team": player.team if player else None,
+            "action_data": action.action_data
+        })
+    
+    return actions_response
+
+
 @router.get("/{video_id}/progress")
 async def stream_progress(video_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     """

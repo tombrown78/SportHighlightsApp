@@ -19,6 +19,11 @@ import {
   Target,
   XCircle,
   RefreshCw,
+  Circle,
+  Hand,
+  ArrowRight,
+  Filter,
+  List,
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -56,7 +61,24 @@ interface Action {
   action_type: string;
   timestamp: number;
   confidence: number;
+  player_id?: string;
   player_jersey?: string;
+  player_team?: string;
+  frame?: number;
+}
+
+// All actions for the video (play-by-play)
+interface VideoAction {
+  id: string;
+  video_id: string;
+  action_type: string;
+  timestamp: number;
+  frame: number;
+  confidence: number;
+  player_id?: string;
+  player_jersey?: string;
+  player_team?: string;
+  action_data?: Record<string, unknown>;
 }
 
 interface TimelineMarker {
@@ -123,6 +145,11 @@ export default function AnalyzePage() {
   const [totalDetections, setTotalDetections] = useState(0);
   const [isCancelling, setIsCancelling] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+
+  // Play-by-play state
+  const [allActions, setAllActions] = useState<VideoAction[]>([]);
+  const [actionFilter, setActionFilter] = useState<string | null>(null);
+  const [showPlayByPlay, setShowPlayByPlay] = useState(true);
 
   // Cancel video processing
   const cancelProcessing = async () => {
@@ -291,6 +318,18 @@ export default function AnalyzePage() {
     }
   };
 
+  const fetchAllActions = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/videos/${videoId}/actions`);
+      if (response.ok) {
+        const data = await response.json();
+        setAllActions(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch actions:', err);
+    }
+  };
+
   const fetchVideo = async () => {
     try {
       const response = await fetch(`${API_URL}/api/videos/${videoId}`);
@@ -300,6 +339,7 @@ export default function AnalyzePage() {
 
       if (data.status === 'completed') {
         fetchPlayers();
+        fetchAllActions();
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load video');
@@ -327,12 +367,14 @@ export default function AnalyzePage() {
               clearInterval(interval);
               if (updated.status === 'completed') {
                 fetchPlayers();
+                fetchAllActions();
               }
             }
           }, 5000);
           return () => clearInterval(interval);
         } else if (data.status === 'completed') {
           fetchPlayers();
+          fetchAllActions();
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load video');
@@ -482,6 +524,39 @@ export default function AnalyzePage() {
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
+
+  // Get icon and color for action type
+  const getActionIcon = (actionType: string) => {
+    switch (actionType) {
+      case 'shot_attempt':
+      case 'shot_made':
+      case 'shot_missed':
+      case 'three_point_attempt':
+        return { icon: Circle, color: 'text-orange-500', bg: 'bg-orange-500/20' };
+      case 'rebound':
+        return { icon: Hand, color: 'text-blue-500', bg: 'bg-blue-500/20' };
+      case 'assist':
+        return { icon: ArrowRight, color: 'text-green-500', bg: 'bg-green-500/20' };
+      case 'steal':
+        return { icon: Zap, color: 'text-yellow-500', bg: 'bg-yellow-500/20' };
+      case 'block':
+        return { icon: XCircle, color: 'text-red-500', bg: 'bg-red-500/20' };
+      case 'pass':
+        return { icon: ArrowRight, color: 'text-purple-500', bg: 'bg-purple-500/20' };
+      case 'turnover':
+        return { icon: AlertCircle, color: 'text-red-400', bg: 'bg-red-400/20' };
+      default:
+        return { icon: Activity, color: 'text-gray-500', bg: 'bg-gray-500/20' };
+    }
+  };
+
+  // Get unique action types for filter
+  const actionTypes = [...new Set(allActions.map(a => a.action_type))];
+
+  // Filter actions based on selected filter
+  const filteredActions = actionFilter
+    ? allActions.filter(a => a.action_type === actionFilter)
+    : allActions;
 
   if (loading) {
     return (
@@ -785,21 +860,25 @@ export default function AnalyzePage() {
                 />
               ))}
 
-              {/* Action markers */}
-              {actions.map((action) => (
-                <div
-                  key={action.id}
-                  className="absolute top-0 h-full w-1 bg-orange-500 cursor-pointer hover:w-2 transition-all"
-                  style={{
-                    left: `${(action.timestamp / video.duration_seconds) * 100}%`,
-                  }}
-                  title={`${action.action_type} at ${formatTime(action.timestamp)}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    seekTo(action.timestamp);
-                  }}
-                />
-              ))}
+              {/* Action markers - show all actions from play-by-play */}
+              {allActions.map((action) => {
+                const { color } = getActionIcon(action.action_type);
+                const bgColor = color.replace('text-', 'bg-');
+                return (
+                  <div
+                    key={action.id}
+                    className={`absolute top-0 h-full w-1 ${bgColor} cursor-pointer hover:w-2 transition-all opacity-80 hover:opacity-100`}
+                    style={{
+                      left: `${(action.timestamp / video.duration_seconds) * 100}%`,
+                    }}
+                    title={`${action.action_type.replace('_', ' ')} by #${action.player_jersey || '?'} at ${formatTime(action.timestamp)}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      seekTo(action.timestamp);
+                    }}
+                  />
+                );
+              })}
 
               {/* Playhead */}
               <div
@@ -965,32 +1044,137 @@ export default function AnalyzePage() {
             </div>
           )}
 
-          {/* Actions List */}
-          {actions.length > 0 && (
+          {/* Actions List (for selected player) */}
+          {selectedPlayer && actions.length > 0 && (
             <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-700">
               <h3 className="font-semibold text-gray-900 dark:text-white mb-3">
-                Actions Timeline
+                #{selectedPlayer.jersey_number} Actions
               </h3>
-              <div className="space-y-2 max-h-64 overflow-y-auto">
-                {actions.map((action) => (
-                  <button
-                    key={action.id}
-                    onClick={() => seekTo(action.timestamp)}
-                    className="w-full p-2 rounded-lg text-left bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium capitalize">
-                        {action.action_type.replace('_', ' ')}
-                      </span>
-                      <span className="text-xs text-gray-500">
-                        {formatTime(action.timestamp)}
-                      </span>
-                    </div>
-                  </button>
-                ))}
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {actions.map((action) => {
+                  const { icon: Icon, color, bg } = getActionIcon(action.action_type);
+                  return (
+                    <button
+                      key={action.id}
+                      onClick={() => seekTo(action.timestamp)}
+                      className="w-full p-2 rounded-lg text-left bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <div className={`p-1 rounded ${bg}`}>
+                            <Icon className={`w-3 h-3 ${color}`} />
+                          </div>
+                          <span className="text-sm font-medium capitalize">
+                            {action.action_type.replace('_', ' ')}
+                          </span>
+                        </div>
+                        <span className="text-xs text-gray-500">
+                          {formatTime(action.timestamp)}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
+
+          {/* Play-by-Play - All Actions */}
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-700">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold text-gray-900 dark:text-white flex items-center">
+                <List className="w-4 h-4 mr-2" />
+                Play-by-Play
+              </h3>
+              <div className="flex items-center space-x-2">
+                <span className="text-xs text-gray-500">{filteredActions.length} events</span>
+                {actionFilter && (
+                  <button
+                    onClick={() => setActionFilter(null)}
+                    className="text-xs text-primary-600 hover:text-primary-700"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Action Type Filters */}
+            {actionTypes.length > 0 && (
+              <div className="flex flex-wrap gap-1 mb-3">
+                {actionTypes.map((type) => {
+                  const { color, bg } = getActionIcon(type);
+                  const isActive = actionFilter === type;
+                  return (
+                    <button
+                      key={type}
+                      onClick={() => setActionFilter(isActive ? null : type)}
+                      className={`px-2 py-1 text-xs rounded-full transition-colors ${
+                        isActive
+                          ? 'bg-primary-600 text-white'
+                          : `${bg} ${color} hover:opacity-80`
+                      }`}
+                    >
+                      {type.replace('_', ' ')}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Actions List */}
+            <div className="space-y-1 max-h-80 overflow-y-auto">
+              {filteredActions.length === 0 ? (
+                <p className="text-sm text-gray-500 text-center py-4">
+                  No actions detected
+                </p>
+              ) : (
+                filteredActions.map((action) => {
+                  const { icon: Icon, color, bg } = getActionIcon(action.action_type);
+                  const isCurrentTime = Math.abs(currentTime - action.timestamp) < 0.5;
+                  
+                  return (
+                    <button
+                      key={action.id}
+                      onClick={() => seekTo(action.timestamp)}
+                      className={`w-full p-2 rounded-lg text-left transition-colors ${
+                        isCurrentTime
+                          ? 'bg-primary-100 dark:bg-primary-900/30 border border-primary-500'
+                          : 'bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-3">
+                        {/* Time */}
+                        <span className="text-xs text-gray-500 w-10 flex-shrink-0">
+                          {formatTime(action.timestamp)}
+                        </span>
+                        
+                        {/* Icon */}
+                        <div className={`p-1.5 rounded ${bg} flex-shrink-0`}>
+                          <Icon className={`w-3 h-3 ${color}`} />
+                        </div>
+                        
+                        {/* Player */}
+                        <span className="text-sm font-bold text-gray-700 dark:text-gray-300 w-8 flex-shrink-0">
+                          #{action.player_jersey || '?'}
+                        </span>
+                        
+                        {/* Action Type */}
+                        <span className="text-sm capitalize flex-grow truncate">
+                          {action.action_type.replace('_', ' ')}
+                        </span>
+                        
+                        {/* Confidence */}
+                        <span className="text-xs text-gray-400 flex-shrink-0">
+                          {action.confidence ? `${Math.round(action.confidence * 100)}%` : ''}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>
