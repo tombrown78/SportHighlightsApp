@@ -1,0 +1,122 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: sports-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sports}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sports123}
+      POSTGRES_DB: ${POSTGRES_DB:-sports_highlights}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sports}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for Celery task queue and caching
+  redis:
+    image: redis:7-alpine
+    container_name: sports-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI Backend with GPU support
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: sports-backend
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-sports}:${POSTGRES_PASSWORD:-sports123}@postgres:5432/${POSTGRES_DB:-sports_highlights}
+      - REDIS_URL=redis://redis:6379/0
+      - PROCESSING_MODE=${PROCESSING_MODE:-local}
+      - CLOUD_PROVIDER=${CLOUD_PROVIDER:-}
+      - REPLICATE_API_TOKEN=${REPLICATE_API_TOKEN:-}
+      - ROBOFLOW_API_KEY=${ROBOFLOW_API_KEY:-}
+    volumes:
+      - ./backend/app:/app/app
+      - videos_data:/app/videos
+      - clips_data:/app/clips
+      - models_data:/app/models
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    # For development, use this command for hot reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Celery Worker for background video processing
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: sports-worker
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-sports}:${POSTGRES_PASSWORD:-sports123}@postgres:5432/${POSTGRES_DB:-sports_highlights}
+      - REDIS_URL=redis://redis:6379/0
+      - PROCESSING_MODE=${PROCESSING_MODE:-local}
+    volumes:
+      - ./backend/app:/app/app
+      - videos_data:/app/videos
+      - clips_data:/app/clips
+      - models_data:/app/models
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    command: celery -A app.workers.tasks worker --loglevel=info --concurrency=1
+
+  # Next.js Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: sports-frontend
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  redis_data:
+  videos_data:
+  clips_data:
+  models_data:

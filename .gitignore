@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Docker
+docker-compose.override.yml
+
+# Next.js
+.next/
+out/
+
+# Python
+venv/
+.venv/
+*.pyo
+
+# Models (downloaded at runtime)
+backend/models/*.pt
+backend/models/*.onnx
+
+# Uploaded videos and clips (stored in Docker volumes)
+backend/videos/
+backend/clips/
+
+# Test coverage
+coverage/
+.coverage
+htmlcov/

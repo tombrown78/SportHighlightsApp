@@ -1,0 +1,586 @@
+'use client';
+
+import { useState, useEffect, useRef } from 'react';
+import { useParams } from 'next/navigation';
+import {
+  Play,
+  Pause,
+  SkipBack,
+  SkipForward,
+  Download,
+  User,
+  Activity,
+  Clock,
+  Loader2,
+  AlertCircle,
+  CheckCircle,
+} from 'lucide-react';
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+interface Video {
+  id: string;
+  filename: string;
+  status: string;
+  duration_seconds: number;
+  width: number;
+  height: number;
+  fps: number;
+  player_count: number;
+  action_count: number;
+  error_message?: string;
+}
+
+interface Player {
+  id: string;
+  jersey_number: string;
+  team: string;
+  confidence: number;
+  segment_count: number;
+  action_count: number;
+}
+
+interface Segment {
+  id: string;
+  start_time: number;
+  end_time: number;
+}
+
+interface Action {
+  id: string;
+  action_type: string;
+  timestamp: number;
+  confidence: number;
+  player_jersey?: string;
+}
+
+interface TimelineMarker {
+  time: number;
+  type: string;
+  player_jersey?: string;
+  action_type?: string;
+  label?: string;
+}
+
+export default function AnalyzePage() {
+  const params = useParams();
+  const videoId = params.id as string;
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [video, setVideo] = useState<Video | null>(null);
+  const [players, setPlayers] = useState<Player[]>([]);
+  const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
+  const [segments, setSegments] = useState<Segment[]>([]);
+  const [actions, setActions] = useState<Action[]>([]);
+  const [markers, setMarkers] = useState<TimelineMarker[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [generatingClips, setGeneratingClips] = useState(false);
+
+  // Fetch video data
+  useEffect(() => {
+    const fetchVideo = async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/videos/${videoId}`);
+        if (!response.ok) throw new Error('Video not found');
+        const data = await response.json();
+        setVideo(data);
+
+        // If still processing, poll for updates
+        if (data.status === 'processing' || data.status === 'queued') {
+          const interval = setInterval(async () => {
+            const res = await fetch(`${API_URL}/api/videos/${videoId}`);
+            const updated = await res.json();
+            setVideo(updated);
+            if (updated.status === 'completed' || updated.status === 'failed') {
+              clearInterval(interval);
+              if (updated.status === 'completed') {
+                fetchPlayers();
+              }
+            }
+          }, 3000);
+          return () => clearInterval(interval);
+        } else if (data.status === 'completed') {
+          fetchPlayers();
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load video');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const fetchPlayers = async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/players/video/${videoId}`);
+        if (response.ok) {
+          const data = await response.json();
+          setPlayers(data);
+        }
+      } catch (err) {
+        console.error('Failed to fetch players:', err);
+      }
+    };
+
+    fetchVideo();
+  }, [videoId]);
+
+  // Fetch player timeline when selected
+  useEffect(() => {
+    if (!selectedPlayer) {
+      setSegments([]);
+      setActions([]);
+      setMarkers([]);
+      return;
+    }
+
+    const fetchTimeline = async () => {
+      try {
+        const response = await fetch(
+          `${API_URL}/api/players/${selectedPlayer.id}/timeline`
+        );
+        if (response.ok) {
+          const data = await response.json();
+          setSegments(data.segments);
+          setActions(data.actions);
+          setMarkers(data.markers);
+        }
+      } catch (err) {
+        console.error('Failed to fetch timeline:', err);
+      }
+    };
+
+    fetchTimeline();
+  }, [selectedPlayer]);
+
+  // Video time update
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const handleTimeUpdate = () => {
+      setCurrentTime(video.currentTime);
+    };
+
+    const handlePlay = () => setIsPlaying(true);
+    const handlePause = () => setIsPlaying(false);
+
+    video.addEventListener('timeupdate', handleTimeUpdate);
+    video.addEventListener('play', handlePlay);
+    video.addEventListener('pause', handlePause);
+
+    return () => {
+      video.removeEventListener('timeupdate', handleTimeUpdate);
+      video.removeEventListener('play', handlePlay);
+      video.removeEventListener('pause', handlePause);
+    };
+  }, []);
+
+  const togglePlay = () => {
+    if (videoRef.current) {
+      if (isPlaying) {
+        videoRef.current.pause();
+      } else {
+        videoRef.current.play();
+      }
+    }
+  };
+
+  const seekTo = (time: number) => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = time;
+    }
+  };
+
+  const skipForward = () => {
+    if (videoRef.current) {
+      videoRef.current.currentTime += 10;
+    }
+  };
+
+  const skipBackward = () => {
+    if (videoRef.current) {
+      videoRef.current.currentTime -= 10;
+    }
+  };
+
+  const jumpToNextSegment = () => {
+    const nextSegment = segments.find((s) => s.start_time > currentTime);
+    if (nextSegment) {
+      seekTo(nextSegment.start_time);
+    }
+  };
+
+  const generateHighlights = async () => {
+    if (!selectedPlayer) return;
+
+    setGeneratingClips(true);
+    try {
+      const response = await fetch(
+        `${API_URL}/api/clips/player/${selectedPlayer.id}/highlights`,
+        { method: 'POST' }
+      );
+      if (response.ok) {
+        const clips = await response.json();
+        alert(`Generated ${clips.length} highlight clips!`);
+      }
+    } catch (err) {
+      console.error('Failed to generate clips:', err);
+    } finally {
+      setGeneratingClips(false);
+    }
+  };
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
+      </div>
+    );
+  }
+
+  if (error || !video) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+          <p className="text-gray-600 dark:text-gray-400">{error || 'Video not found'}</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Processing state
+  if (video.status === 'processing' || video.status === 'queued') {
+    return (
+      <div className="max-w-2xl mx-auto">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8 text-center">
+          <Loader2 className="w-16 h-16 animate-spin text-primary-600 mx-auto mb-4" />
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+            Analyzing Video
+          </h2>
+          <p className="text-gray-600 dark:text-gray-400 mb-4">
+            {video.filename}
+          </p>
+          <div className="bg-gray-100 dark:bg-gray-700 rounded-lg p-4">
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Status: <span className="font-medium capitalize">{video.status}</span>
+            </p>
+            <p className="text-xs text-gray-500 mt-2">
+              This may take a few minutes depending on video length...
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Failed state
+  if (video.status === 'failed') {
+    return (
+      <div className="max-w-2xl mx-auto">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-red-200 dark:border-red-800 p-8 text-center">
+          <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+            Processing Failed
+          </h2>
+          <p className="text-gray-600 dark:text-gray-400 mb-4">
+            {video.error_message || 'An error occurred while processing the video'}
+          </p>
+          <a
+            href="/"
+            className="inline-block px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+          >
+            Try Another Video
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+            {video.filename}
+          </h1>
+          <div className="flex items-center space-x-4 mt-1 text-sm text-gray-600 dark:text-gray-400">
+            <span className="flex items-center">
+              <Clock className="w-4 h-4 mr-1" />
+              {formatTime(video.duration_seconds)}
+            </span>
+            <span className="flex items-center">
+              <User className="w-4 h-4 mr-1" />
+              {video.player_count} players
+            </span>
+            <span className="flex items-center">
+              <Activity className="w-4 h-4 mr-1" />
+              {video.action_count} actions
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center space-x-2">
+          <span className="px-3 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-full text-sm flex items-center">
+            <CheckCircle className="w-4 h-4 mr-1" />
+            Analyzed
+          </span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Video Player */}
+        <div className="lg:col-span-2 space-y-4">
+          <div className="bg-black rounded-xl overflow-hidden">
+            <video
+              ref={videoRef}
+              src={`${API_URL}/api/videos/${videoId}/stream`}
+              className="w-full aspect-video"
+              onClick={togglePlay}
+            />
+          </div>
+
+          {/* Timeline */}
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-700">
+            {/* Progress bar */}
+            <div
+              className="relative h-8 bg-gray-200 dark:bg-gray-700 rounded-lg cursor-pointer mb-4"
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const percent = x / rect.width;
+                seekTo(percent * video.duration_seconds);
+              }}
+            >
+              {/* Segments */}
+              {segments.map((segment) => (
+                <div
+                  key={segment.id}
+                  className="absolute top-0 h-full bg-primary-500/40 rounded"
+                  style={{
+                    left: `${(segment.start_time / video.duration_seconds) * 100}%`,
+                    width: `${((segment.end_time - segment.start_time) / video.duration_seconds) * 100}%`,
+                  }}
+                />
+              ))}
+
+              {/* Action markers */}
+              {actions.map((action) => (
+                <div
+                  key={action.id}
+                  className="absolute top-0 h-full w-1 bg-orange-500 cursor-pointer hover:w-2 transition-all"
+                  style={{
+                    left: `${(action.timestamp / video.duration_seconds) * 100}%`,
+                  }}
+                  title={`${action.action_type} at ${formatTime(action.timestamp)}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    seekTo(action.timestamp);
+                  }}
+                />
+              ))}
+
+              {/* Playhead */}
+              <div
+                className="absolute top-0 h-full w-1 bg-white shadow-lg"
+                style={{
+                  left: `${(currentTime / video.duration_seconds) * 100}%`,
+                }}
+              />
+            </div>
+
+            {/* Controls */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={skipBackward}
+                  className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+                >
+                  <SkipBack className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={togglePlay}
+                  className="p-3 bg-primary-600 hover:bg-primary-700 text-white rounded-full"
+                >
+                  {isPlaying ? (
+                    <Pause className="w-5 h-5" />
+                  ) : (
+                    <Play className="w-5 h-5" />
+                  )}
+                </button>
+                <button
+                  onClick={skipForward}
+                  className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+                >
+                  <SkipForward className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="text-sm text-gray-600 dark:text-gray-400">
+                {formatTime(currentTime)} / {formatTime(video.duration_seconds)}
+              </div>
+
+              {selectedPlayer && (
+                <button
+                  onClick={jumpToNextSegment}
+                  className="px-3 py-1 text-sm bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400 rounded-lg hover:bg-primary-200"
+                >
+                  Next #{selectedPlayer.jersey_number} moment
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Sidebar */}
+        <div className="space-y-4">
+          {/* Player Selection */}
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-700">
+            <h3 className="font-semibold text-gray-900 dark:text-white mb-3">
+              Detected Players
+            </h3>
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {players.length === 0 ? (
+                <p className="text-sm text-gray-500">No players detected</p>
+              ) : (
+                players.map((player) => (
+                  <button
+                    key={player.id}
+                    onClick={() =>
+                      setSelectedPlayer(
+                        selectedPlayer?.id === player.id ? null : player
+                      )
+                    }
+                    className={`w-full p-3 rounded-lg text-left transition-colors ${
+                      selectedPlayer?.id === player.id
+                        ? 'bg-primary-100 dark:bg-primary-900/30 border-primary-500'
+                        : 'bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600'
+                    } border`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-lg">
+                        #{player.jersey_number || '?'}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {player.segment_count} segments
+                      </span>
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {player.action_count} actions detected
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Player Stats */}
+          {selectedPlayer && (
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-700">
+              <h3 className="font-semibold text-gray-900 dark:text-white mb-3">
+                Player #{selectedPlayer.jersey_number} Stats
+              </h3>
+              <div className="space-y-3">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600 dark:text-gray-400">
+                    Time on screen
+                  </span>
+                  <span className="font-medium">
+                    {formatTime(
+                      segments.reduce(
+                        (acc, s) => acc + (s.end_time - s.start_time),
+                        0
+                      )
+                    )}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600 dark:text-gray-400">
+                    Segments
+                  </span>
+                  <span className="font-medium">{segments.length}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600 dark:text-gray-400">
+                    Actions
+                  </span>
+                  <span className="font-medium">{actions.length}</span>
+                </div>
+
+                {/* Action breakdown */}
+                {actions.length > 0 && (
+                  <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
+                    <p className="text-xs text-gray-500 mb-2">Action breakdown:</p>
+                    {Object.entries(
+                      actions.reduce((acc, a) => {
+                        acc[a.action_type] = (acc[a.action_type] || 0) + 1;
+                        return acc;
+                      }, {} as Record<string, number>)
+                    ).map(([type, count]) => (
+                      <div
+                        key={type}
+                        className="flex justify-between text-xs py-1"
+                      >
+                        <span className="capitalize">{type.replace('_', ' ')}</span>
+                        <span className="font-medium">{count}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <button
+                  onClick={generateHighlights}
+                  disabled={generatingClips}
+                  className="w-full mt-4 py-2 px-4 bg-primary-600 hover:bg-primary-700 disabled:bg-gray-400 text-white text-sm font-medium rounded-lg flex items-center justify-center"
+                >
+                  {generatingClips ? (
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  ) : (
+                    <Download className="w-4 h-4 mr-2" />
+                  )}
+                  Generate Highlights
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Actions List */}
+          {actions.length > 0 && (
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-700">
+              <h3 className="font-semibold text-gray-900 dark:text-white mb-3">
+                Actions Timeline
+              </h3>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {actions.map((action) => (
+                  <button
+                    key={action.id}
+                    onClick={() => seekTo(action.timestamp)}
+                    className="w-full p-2 rounded-lg text-left bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium capitalize">
+                        {action.action_type.replace('_', ' ')}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {formatTime(action.timestamp)}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
