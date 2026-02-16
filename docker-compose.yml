@@ -15,7 +15,7 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sports}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sports} -d ${POSTGRES_DB:-sports_highlights}"]
       interval: 10s
       timeout: 5s
       retries: 5
