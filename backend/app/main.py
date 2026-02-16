@@ -3,18 +3,28 @@ Sports Highlights App - FastAPI Backend
 Basketball video analysis with AI-powered player tracking and action recognition
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from contextlib import asynccontextmanager
 import logging
+import time
 
 from app.api import videos, players, clips
 from app.core.config import settings
 from app.core.database import engine, Base
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging with more detail
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
+
+# Also set uvicorn loggers to debug
+logging.getLogger("uvicorn").setLevel(logging.DEBUG)
+logging.getLogger("uvicorn.access").setLevel(logging.DEBUG)
+logging.getLogger("uvicorn.error").setLevel(logging.DEBUG)
 
 
 @asynccontextmanager
@@ -51,6 +61,28 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+
+# Request logging middleware
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        start_time = time.time()
+        logger.info(f">>> REQUEST: {request.method} {request.url.path}")
+        logger.debug(f"    Headers: {dict(request.headers)}")
+        logger.debug(f"    Query params: {dict(request.query_params)}")
+        
+        try:
+            response = await call_next(request)
+            process_time = time.time() - start_time
+            logger.info(f"<<< RESPONSE: {request.method} {request.url.path} - Status: {response.status_code} - Time: {process_time:.3f}s")
+            return response
+        except Exception as e:
+            logger.error(f"!!! ERROR: {request.method} {request.url.path} - {type(e).__name__}: {e}")
+            raise
+
+
+# Add request logging middleware FIRST (before CORS)
+app.add_middleware(RequestLoggingMiddleware)
 
 # Configure CORS
 app.add_middleware(
