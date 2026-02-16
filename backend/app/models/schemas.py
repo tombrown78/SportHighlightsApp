@@ -51,6 +51,16 @@ class VideoProcessingStatus(BaseModel):
 
 # ============ Player Schemas ============
 
+class AppearanceFeatures(BaseModel):
+    """Human-readable appearance features extracted from player crops"""
+    jersey_color: Optional[str] = None  # RGB tuple as string
+    jersey_color_name: Optional[str] = None
+    shorts_color: Optional[str] = None
+    shorts_color_name: Optional[str] = None
+    shoe_color: Optional[str] = None
+    shoe_color_name: Optional[str] = None
+
+
 class PlayerBase(BaseModel):
     """Base player schema"""
     jersey_number: Optional[str] = None
@@ -68,6 +78,10 @@ class PlayerResponse(PlayerBase):
     segment_count: Optional[int] = None
     action_count: Optional[int] = None
     team_color: Optional[str] = None  # RGB hex color (e.g., "#FF5500")
+    # Appearance-based re-identification fields
+    appearance_cluster_id: Optional[int] = None  # Cluster ID for grouping similar-looking players
+    appearance_features: Optional[AppearanceFeatures] = None  # Human-readable features
+    merged_track_ids: Optional[List[int]] = None  # Track IDs that were merged into this player
     
     class Config:
         from_attributes = True

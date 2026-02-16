@@ -32,6 +32,10 @@ mediapipe>=0.10.9
 # Team classification
 scikit-learn>=1.4.0
 
+# Person Re-Identification (appearance-based player tracking)
+torchreid>=1.4.0
+gdown>=4.7.0  # For downloading pre-trained weights
+
 # Object tracking
 lapx==0.5.4
 

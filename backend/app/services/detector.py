@@ -35,6 +35,11 @@ class PlayerTrack:
     jersey_numbers: List[str]  # All detected jersey numbers for voting
     first_frame: int
     last_frame: int
+    # Appearance-based re-identification fields
+    appearance_embedding: Optional[np.ndarray] = None  # 512-dim visual embedding
+    appearance_cluster_id: Optional[int] = None  # Cluster ID after appearance-based grouping
+    appearance_features: Optional[Dict] = None  # Human-readable features (colors, etc.)
+    merged_track_ids: Optional[List[int]] = None  # Track IDs merged into this one
     
     @property
     def jersey_number(self) -> Optional[str]:

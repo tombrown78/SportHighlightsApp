@@ -1,6 +1,6 @@
 """SQLAlchemy database models"""
 
-from sqlalchemy import Column, String, Float, Integer, Boolean, ForeignKey, Text, DateTime
+from sqlalchemy import Column, String, Float, Integer, Boolean, ForeignKey, Text, DateTime, LargeBinary
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -47,6 +47,11 @@ class Player(Base):
     confidence = Column(Float)
     first_seen_frame = Column(Integer)
     last_seen_frame = Column(Integer)
+    # Appearance-based re-identification fields
+    appearance_embedding = Column(LargeBinary)  # 512-dim visual embedding (serialized float32 array)
+    appearance_cluster_id = Column(Integer)  # Cluster ID for grouping similar-looking players
+    appearance_features = Column(JSONB)  # Human-readable features: {"jersey_color": "#FF0000", "shoe_color": "white", ...}
+    merged_track_ids = Column(JSONB)  # List of track IDs that were merged into this player
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationships

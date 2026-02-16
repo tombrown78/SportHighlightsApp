@@ -53,6 +53,17 @@ interface Player {
   confidence: number;
   segment_count: number;
   action_count: number;
+  // Appearance-based re-identification fields
+  appearance_cluster_id?: number;
+  appearance_features?: {
+    jersey_color?: string;
+    jersey_color_name?: string;
+    shorts_color?: string;
+    shorts_color_name?: string;
+    shoe_color?: string;
+    shoe_color_name?: string;
+  };
+  merged_track_ids?: number[];
 }
 
 interface Segment {
@@ -1090,6 +1101,15 @@ export default function AnalyzePage() {
                         <span className="font-bold text-lg">
                           #{player.jersey_number || '?'}
                         </span>
+                        {/* Appearance cluster badge */}
+                        {player.appearance_cluster_id !== undefined && player.appearance_cluster_id !== null && (
+                          <span 
+                            className="px-1.5 py-0.5 text-[10px] bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 rounded"
+                            title={`Appearance Group ${player.appearance_cluster_id}`}
+                          >
+                            G{player.appearance_cluster_id}
+                          </span>
+                        )}
                       </div>
                       <span className="text-xs text-gray-500">
                         {player.segment_count} segments
@@ -1103,6 +1123,37 @@ export default function AnalyzePage() {
                         {player.action_count} actions
                       </span>
                     </div>
+                    {/* Appearance features */}
+                    {player.appearance_features && (
+                      <div className="flex items-center gap-1 mt-2">
+                        {player.appearance_features.jersey_color && (
+                          <div
+                            className="w-4 h-4 rounded border border-gray-300"
+                            style={{ backgroundColor: `rgb(${player.appearance_features.jersey_color})` }}
+                            title={`Jersey: ${player.appearance_features.jersey_color_name || 'unknown'}`}
+                          />
+                        )}
+                        {player.appearance_features.shorts_color && (
+                          <div
+                            className="w-4 h-4 rounded border border-gray-300"
+                            style={{ backgroundColor: `rgb(${player.appearance_features.shorts_color})` }}
+                            title={`Shorts: ${player.appearance_features.shorts_color_name || 'unknown'}`}
+                          />
+                        )}
+                        {player.appearance_features.shoe_color && (
+                          <div
+                            className="w-4 h-4 rounded border border-gray-300"
+                            style={{ backgroundColor: `rgb(${player.appearance_features.shoe_color})` }}
+                            title={`Shoes: ${player.appearance_features.shoe_color_name || 'unknown'}`}
+                          />
+                        )}
+                        {player.merged_track_ids && player.merged_track_ids.length > 1 && (
+                          <span className="text-[10px] text-gray-400 ml-1">
+                            ({player.merged_track_ids.length} tracks merged)
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </button>
                 ))
               )}

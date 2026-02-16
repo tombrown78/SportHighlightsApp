@@ -1,0 +1,169 @@
+# Sports Highlights App - Cursor Rules
+
+## Project Overview
+
+This is a basketball video analysis application using:
+- **Backend**: FastAPI + Celery + PostgreSQL + Redis
+- **Frontend**: Next.js 14 + TypeScript + Tailwind CSS
+- **ML/CV**: YOLOv8, ByteTrack, EasyOCR, MediaPipe, Roboflow
+- **Infrastructure**: Docker Compose with NVIDIA GPU support
+
+## Architecture
+
+```
+frontend/          - Next.js application (port 3000)
+backend/
+  app/
+    api/           - FastAPI route handlers
+    core/          - Config, database connection
+    models/        - SQLAlchemy models, Pydantic schemas
+    services/      - ML/CV services (detection, OCR, etc.)
+    workers/       - Celery background tasks
+scripts/           - Migration and utility scripts
+```
+
+## Development Guidelines
+
+### When Adding New Features
+
+1. **New Python Dependencies**
+   - Add to `backend/requirements.txt`
+   - Rebuild container: `docker compose build backend`
+   - Document in README under Requirements section
+
+2. **New Database Columns/Tables**
+   - Update `backend/app/models/database.py`
+   - Update `backend/app/models/schemas.py` (Pydantic models)
+   - Create migration script in `scripts/migrate_vX.sql`
+   - Add migration command to README
+   - SQLAlchemy `create_all` handles new installations automatically
+
+3. **New API Endpoints**
+   - Add route handler in `backend/app/api/`
+   - Register router in `backend/app/main.py` if new file
+   - Update README API documentation
+
+4. **New Frontend Features**
+   - Update TypeScript interfaces to match backend schemas
+   - Use Tailwind CSS for styling (no inline styles except dynamic values)
+
+### Deployment Requirements
+
+**IMPORTANT**: When making significant changes, always document:
+
+1. **Rebuild Requirements**
+   ```powershell
+   docker compose build backend
+   docker compose up -d
+   ```
+
+2. **Database Migrations** (for existing installations)
+   ```powershell
+   docker exec sports-postgres psql -U sports -d sports_highlights -c "YOUR_SQL_HERE"
+   ```
+
+3. **Environment Variables** - Update `.env.example` with new variables
+
+4. **Update README** with:
+   - New features in Features section
+   - New environment variables
+   - Migration commands
+   - Any new requirements
+
+### Code Patterns
+
+#### Backend Services
+
+New ML/CV services should follow this pattern:
+```python
+# backend/app/services/my_service.py
+"""
+Service description
+"""
+import logging
+from typing import List, Dict, Optional
+from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
+
+@dataclass
+class MyResult:
+    """Result dataclass"""
+    field: str
+
+class MyService:
+    """Service class with lazy initialization"""
+    
+    def __init__(self):
+        self.model = None
+        self._load_model()
+    
+    def _load_model(self):
+        """Load model with fallback"""
+        try:
+            # Primary model
+            pass
+        except Exception as e:
+            logger.warning(f"Fallback: {e}")
+            # Fallback model
+```
+
+#### Database Models
+
+```python
+# Always include these fields for new tables
+id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+created_at = Column(DateTime(timezone=True), server_default=func.now())
+```
+
+#### API Responses
+
+```python
+# Always update both database model AND Pydantic schema
+# backend/app/models/database.py - SQLAlchemy model
+# backend/app/models/schemas.py - Pydantic response model
+```
+
+### Testing
+
+```powershell
+# Run backend tests
+docker compose exec backend pytest
+
+# Run specific test file
+docker compose exec backend pytest tests/test_detector.py -v
+
+# Check GPU access
+docker compose exec backend nvidia-smi
+```
+
+### Common Issues
+
+1. **GPU not detected**: Ensure NVIDIA Container Toolkit is installed
+2. **Database connection failed**: Check PostgreSQL container is running
+3. **Import errors after adding deps**: Rebuild with `docker compose build backend`
+4. **Schema mismatch**: Run database migration for existing installations
+
+### Pre-trained Models
+
+The app uses these pre-trained models (no training required):
+
+| Model | Source | Purpose |
+|-------|--------|---------|
+| YOLOv8x | Ultralytics | Player/ball detection |
+| ByteTrack | Supervision | Multi-object tracking |
+| EasyOCR | JaidedAI | Jersey number OCR |
+| MediaPipe Pose | Google | Player pose estimation |
+| Basketball/Hoop | Roboflow | Basketball-specific detection |
+
+### Environment Variables
+
+Key variables in `.env`:
+- `ROBOFLOW_API_KEY` - Enables basketball/hoop detection
+- `PROCESSING_MODE` - "local" (GPU) or "cloud"
+- `YOUTUBE_USE_OAUTH` - YouTube authentication
+
+### File Size Limits
+
+- Video uploads: 2GB max (configurable via `MAX_VIDEO_SIZE_MB`)
+- Supported formats: MP4, MOV, AVI, MKV, WEBM, WMV

@@ -159,6 +159,75 @@ docker exec sports-postgres psql -U sports -d sports_highlights -c "\d players"
 docker exec sports-postgres psql -U sports -d sports_highlights -c "SELECT 'videos' as table_name, COUNT(*) FROM videos UNION ALL SELECT 'players', COUNT(*) FROM players UNION ALL SELECT 'actions', COUNT(*) FROM actions UNION ALL SELECT 'clips', COUNT(*) FROM clips;"
 ```
 
+## Upgrading / Adding New Features
+
+When pulling updates that include new features, follow these steps:
+
+### Step 1: Pull Latest Code
+
+```powershell
+git pull origin main
+```
+
+### Step 2: Rebuild Containers
+
+Required when new Python dependencies are added:
+
+```powershell
+# Rebuild backend (includes worker)
+docker compose build backend
+
+# Or rebuild all containers
+docker compose build
+```
+
+### Step 3: Run Database Migrations
+
+Check the release notes or `scripts/` folder for migration scripts:
+
+```powershell
+# Run migration script (Windows)
+.\scripts\migrate.ps1
+
+# Or run SQL directly
+docker exec sports-postgres psql -U sports -d sports_highlights -f /path/to/migrate.sql
+
+# Or run individual commands
+docker exec sports-postgres psql -U sports -d sports_highlights -c "ALTER TABLE players ADD COLUMN IF NOT EXISTS team_color VARCHAR(7);"
+```
+
+### Step 4: Restart Services
+
+```powershell
+docker compose up -d
+```
+
+### Step 5: Verify
+
+```powershell
+# Check all services are running
+docker compose ps
+
+# Check logs for errors
+docker compose logs -f backend worker
+
+# Verify database schema
+docker exec sports-postgres psql -U sports -d sports_highlights -c "\d players"
+```
+
+### Quick Upgrade (All Steps)
+
+```powershell
+# Full upgrade sequence
+git pull origin main
+docker compose build backend
+docker exec sports-postgres psql -U sports -d sports_highlights -c "ALTER TABLE players ADD COLUMN IF NOT EXISTS team_color VARCHAR(7);"
+docker compose up -d
+docker compose logs -f backend worker
+```
+
+**Note**: Existing analyzed videos won't have new features (like team colors). Re-process videos to get the new data.
+
 ## Architecture
 
 ```

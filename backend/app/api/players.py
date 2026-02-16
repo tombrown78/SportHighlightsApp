@@ -10,7 +10,8 @@ from app.core.database import get_db
 from app.models.database import Player, PlayerSegment, Action, Video
 from app.models.schemas import (
     PlayerResponse, PlayerDetailResponse, PlayerSegmentResponse,
-    ActionResponse, TimelineMarker, PlayerTimeline, PlayerStats, ActionSummary
+    ActionResponse, TimelineMarker, PlayerTimeline, PlayerStats, ActionSummary,
+    AppearanceFeatures
 )
 
 router = APIRouter()
@@ -59,7 +60,11 @@ async def get_players_by_video(
             first_seen_frame=player.first_seen_frame,
             last_seen_frame=player.last_seen_frame,
             segment_count=segment_count.scalar(),
-            action_count=action_count.scalar()
+            action_count=action_count.scalar(),
+            # Appearance-based re-identification fields
+            appearance_cluster_id=player.appearance_cluster_id,
+            appearance_features=AppearanceFeatures(**player.appearance_features) if player.appearance_features else None,
+            merged_track_ids=player.merged_track_ids
         ))
     
     return response
@@ -198,7 +203,10 @@ async def get_player_timeline(player_id: uuid.UUID, db: AsyncSession = Depends(g
             first_seen_frame=player.first_seen_frame,
             last_seen_frame=player.last_seen_frame,
             segment_count=len(segments),
-            action_count=len(actions)
+            action_count=len(actions),
+            appearance_cluster_id=player.appearance_cluster_id,
+            appearance_features=AppearanceFeatures(**player.appearance_features) if player.appearance_features else None,
+            merged_track_ids=player.merged_track_ids
         ),
         segments=[PlayerSegmentResponse(
             id=s.id,
@@ -268,7 +276,10 @@ async def get_player_stats(player_id: uuid.UUID, db: AsyncSession = Depends(get_
             first_seen_frame=player.first_seen_frame,
             last_seen_frame=player.last_seen_frame,
             segment_count=len(segments),
-            action_count=sum(action_dict.values())
+            action_count=sum(action_dict.values()),
+            appearance_cluster_id=player.appearance_cluster_id,
+            appearance_features=AppearanceFeatures(**player.appearance_features) if player.appearance_features else None,
+            merged_track_ids=player.merged_track_ids
         ),
         total_time_visible=total_time,
         action_counts=action_dict,

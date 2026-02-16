@@ -180,6 +180,7 @@ def process_video_task(self, video_id: str, options: dict = None):
     from app.services.jersey_ocr import JerseyOCR, temporal_vote_jersey
     from app.services.action_recognizer import ActionRecognizer
     from app.services.video_processor import get_video_info_sync
+    from app.services.player_reid import PlayerReID, serialize_embedding
     
     # Parse options
     options = options or {}
@@ -280,6 +281,82 @@ def process_video_task(self, video_id: str, options: dict = None):
             frame_height=frame_height
         )
         logger.info(f"After filtering: {len(player_tracks)} tracks remain")
+        
+        # Check for cancellation before ReID
+        if progress_pub.is_cancelled():
+            raise CancelledException("Cancelled before ReID")
+        
+        # Run appearance-based re-identification
+        progress_pub.stage_change("reid", "Extracting player appearances...")
+        logger.info("Running appearance-based player re-identification...")
+        
+        reid_service = PlayerReID(similarity_threshold=0.7)
+        track_embeddings = {}
+        track_crops_cache = {}  # Cache crops for later use in OCR
+        
+        # Open video for ReID crops
+        cap = cv2.VideoCapture(video.file_path)
+        
+        reid_count = 0
+        total_tracks = len(player_tracks)
+        
+        for track_id, track in player_tracks.items():
+            # Check for cancellation
+            if reid_count % 5 == 0 and progress_pub.is_cancelled():
+                cap.release()
+                raise CancelledException("Cancelled during ReID")
+            
+            reid_count += 1
+            crops = []
+            
+            # Sample frames for ReID (every 10th detection)
+            sample_indices = list(range(0, len(track.detections), 10))[:20]  # Max 20 samples
+            
+            for idx in sample_indices:
+                det = track.detections[idx]
+                
+                # Seek to frame
+                cap.set(cv2.CAP_PROP_POS_FRAMES, det.frame_number)
+                ret, frame = cap.read()
+                
+                if ret:
+                    crop = detector.get_player_crop(frame, det.bbox)
+                    if crop is not None and crop.size > 0:
+                        crops.append(crop)
+            
+            # Cache crops for OCR stage
+            track_crops_cache[track_id] = crops
+            
+            # Compute average embedding for this track
+            if crops:
+                embedding = reid_service.compute_track_embedding(crops)
+                if embedding is not None:
+                    track_embeddings[track_id] = embedding
+                    track.appearance_embedding = embedding
+                    
+                    # Extract human-readable appearance features from best crop
+                    best_crop = max(crops, key=lambda c: c.shape[0] * c.shape[1])
+                    track.appearance_features = reid_service.extract_appearance_features(best_crop)
+            
+            # Update progress
+            progress_pub.progress(reid_count, total_tracks, "reid")
+        
+        cap.release()
+        
+        logger.info(f"Extracted embeddings for {len(track_embeddings)} tracks")
+        
+        # Cluster tracks by appearance to identify unique players
+        if track_embeddings:
+            progress_pub.stage_change("clustering", "Clustering players by appearance...")
+            logger.info("Clustering tracks by appearance similarity...")
+            
+            # Merge tracks that look like the same person
+            player_tracks = reid_service.merge_tracks_by_appearance(
+                player_tracks,
+                track_embeddings
+            )
+            
+            logger.info(f"After appearance-based merging: {len(player_tracks)} unique players")
         
         # Open video for OCR crops
         progress_pub.stage_change("ocr", "Reading jersey numbers...")
@@ -437,6 +514,11 @@ def process_video_task(self, video_id: str, options: dict = None):
             if team_color:
                 team_color_hex = "#{:02x}{:02x}{:02x}".format(*team_color)
             
+            # Serialize appearance embedding for database storage
+            appearance_embedding_bytes = None
+            if track.appearance_embedding is not None:
+                appearance_embedding_bytes = serialize_embedding(track.appearance_embedding)
+            
             player = Player(
                 video_id=video.id,
                 jersey_number=track.jersey_number,
@@ -445,7 +527,12 @@ def process_video_task(self, video_id: str, options: dict = None):
                 track_id=track_id,
                 confidence=track.confidence,
                 first_seen_frame=track.first_frame,
-                last_seen_frame=track.last_frame
+                last_seen_frame=track.last_frame,
+                # Appearance-based re-identification data
+                appearance_embedding=appearance_embedding_bytes,
+                appearance_cluster_id=track.appearance_cluster_id,
+                appearance_features=track.appearance_features,
+                merged_track_ids=track.merged_track_ids
             )
             session.add(player)
             session.flush()  # Get the ID
