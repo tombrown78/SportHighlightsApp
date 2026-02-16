@@ -372,55 +372,82 @@ export default function AnalyzePage() {
     fetchTimeline();
   }, [selectedPlayer]);
 
-  // Video time update
+  // Video time update - depend on video status to re-run when video loads
   useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
+    const videoElement = videoRef.current;
+    if (!videoElement) return;
 
     const handleTimeUpdate = () => {
-      setCurrentTime(video.currentTime);
+      setCurrentTime(videoElement.currentTime);
     };
 
     const handlePlay = () => setIsPlaying(true);
     const handlePause = () => setIsPlaying(false);
+    const handleLoadedMetadata = () => {
+      console.log('Video metadata loaded, duration:', videoElement.duration);
+    };
+    const handleCanPlay = () => {
+      console.log('Video can play');
+    };
+    const handleError = (e: Event) => {
+      console.error('Video error:', e);
+    };
 
-    video.addEventListener('timeupdate', handleTimeUpdate);
-    video.addEventListener('play', handlePlay);
-    video.addEventListener('pause', handlePause);
+    videoElement.addEventListener('timeupdate', handleTimeUpdate);
+    videoElement.addEventListener('play', handlePlay);
+    videoElement.addEventListener('pause', handlePause);
+    videoElement.addEventListener('loadedmetadata', handleLoadedMetadata);
+    videoElement.addEventListener('canplay', handleCanPlay);
+    videoElement.addEventListener('error', handleError);
 
     return () => {
-      video.removeEventListener('timeupdate', handleTimeUpdate);
-      video.removeEventListener('play', handlePlay);
-      video.removeEventListener('pause', handlePause);
+      videoElement.removeEventListener('timeupdate', handleTimeUpdate);
+      videoElement.removeEventListener('play', handlePlay);
+      videoElement.removeEventListener('pause', handlePause);
+      videoElement.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      videoElement.removeEventListener('canplay', handleCanPlay);
+      videoElement.removeEventListener('error', handleError);
     };
-  }, []);
+  }, [video?.status]);
 
   const togglePlay = () => {
-    if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.pause();
-      } else {
-        videoRef.current.play();
-      }
+    const videoElement = videoRef.current;
+    if (!videoElement) {
+      console.error('Video element not found');
+      return;
+    }
+    
+    console.log('Toggle play, current state:', isPlaying, 'paused:', videoElement.paused);
+    
+    if (videoElement.paused) {
+      videoElement.play().catch(err => {
+        console.error('Error playing video:', err);
+      });
+    } else {
+      videoElement.pause();
     }
   };
 
   const seekTo = (time: number) => {
-    if (videoRef.current) {
-      videoRef.current.currentTime = time;
+    const videoElement = videoRef.current;
+    if (!videoElement) {
+      console.error('Video element not found');
+      return;
     }
+    console.log('Seeking to:', time);
+    videoElement.currentTime = time;
   };
 
   const skipForward = () => {
-    if (videoRef.current) {
-      videoRef.current.currentTime += 10;
-    }
+    const videoElement = videoRef.current;
+    if (!videoElement) return;
+    videoElement.currentTime = Math.min(videoElement.currentTime + 10, videoElement.duration);
   };
 
   const skipBackward = () => {
-    if (videoRef.current) {
-      videoRef.current.currentTime -= 10;
-    }
+    const videoElement = videoRef.current;
+    if (!videoElement) return;
+    videoElement.currentTime = Math.max(videoElement.currentTime - 10, 0);
   };
 
   const jumpToNextSegment = () => {
@@ -729,6 +756,8 @@ export default function AnalyzePage() {
               src={`${API_URL}/api/videos/${videoId}/stream`}
               className="w-full aspect-video"
               onClick={togglePlay}
+              playsInline
+              preload="auto"
             />
           </div>
 

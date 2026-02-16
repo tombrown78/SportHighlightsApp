@@ -245,7 +245,11 @@ async def get_video_status(video_id: uuid.UUID, db: AsyncSession = Depends(get_d
 
 @router.get("/{video_id}/stream")
 async def stream_video(video_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    """Stream video file"""
+    """Stream video file with range request support"""
+    from fastapi import Request
+    from starlette.responses import Response
+    import mimetypes
+    
     result = await db.execute(select(Video).where(Video.id == video_id))
     video = result.scalar_one_or_none()
     
@@ -255,10 +259,27 @@ async def stream_video(video_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     if not os.path.exists(video.file_path):
         raise HTTPException(status_code=404, detail="Video file not found")
     
+    # Get file info
+    file_size = os.path.getsize(video.file_path)
+    
+    # Determine content type
+    content_type, _ = mimetypes.guess_type(video.file_path)
+    if not content_type:
+        content_type = "video/mp4"
+    
+    # Return file with headers that support seeking
     return FileResponse(
         video.file_path,
-        media_type="video/mp4",
-        filename=video.filename
+        media_type=content_type,
+        filename=video.filename,
+        headers={
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(file_size),
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "Range",
+            "Access-Control-Expose-Headers": "Content-Length, Content-Range, Accept-Ranges",
+        }
     )
 
 
